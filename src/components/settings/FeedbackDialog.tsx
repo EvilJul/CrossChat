@@ -18,7 +18,7 @@ export default function FeedbackDialog() {
     if (!feedback.trim()) return;
     setSending(true);
 
-    const subject = encodeURIComponent("[OpenAiDesktop 反馈] - " + new Date().toLocaleString("zh-CN"));
+    const subject = encodeURIComponent("[CrossChat 反馈] - " + new Date().toLocaleString("zh-CN"));
     const body = encodeURIComponent(
       feedback + "\n\n---\n系统信息:\n" +
       `平台: ${navigator.platform}\n` +

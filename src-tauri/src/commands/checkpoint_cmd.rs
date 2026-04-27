@@ -21,7 +21,7 @@ fn checkpoint_path() -> PathBuf {
     let home = std::env::var("APPDATA")
         .or_else(|_| std::env::var("HOME"))
         .unwrap_or_else(|_| ".".into());
-    let dir = PathBuf::from(home).join(".openai-desktop");
+    let dir = PathBuf::from(home).join(".crosschat");
     std::fs::create_dir_all(&dir).ok();
     dir.join("checkpoint.json")
 }

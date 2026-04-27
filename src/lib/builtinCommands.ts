@@ -169,7 +169,7 @@ export function setupBuiltinCommands(deps: {
     handler: () => {
       const cmds = getCommands();
       return (
-        "**OpenAiDesktop 帮助**\n\n" +
+        "**CrossChat 帮助**\n\n" +
         "**斜杠命令**:\n" +
         cmds.map((c) => `- **/${c.name}** — ${c.description}`).join("\n") +
         "\n\n**使用提示**:\n" +

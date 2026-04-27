@@ -28,7 +28,7 @@ impl McpManager {
         let home = std::env::var("APPDATA")
             .or_else(|_| std::env::var("HOME"))
             .unwrap_or_else(|_| ".".into());
-        let dir = std::path::PathBuf::from(home).join(".openai-desktop");
+        let dir = std::path::PathBuf::from(home).join(".crosschat");
         std::fs::create_dir_all(&dir).ok();
         let config_path = dir.join("mcp_servers.json");
 

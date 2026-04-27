@@ -9,11 +9,11 @@ pub fn read_agent_config(work_dir: Option<String>) -> Result<AgentConfig, String
     let mut global_path = String::new();
     let mut workspace_path = String::new();
 
-    // 全局 AGENT.md: ~/.openai-desktop/AGENT.md
+    // 全局 AGENT.md: ~/.crosschat/AGENT.md
     let home = std::env::var("APPDATA")
         .or_else(|_| std::env::var("HOME"))
         .unwrap_or_else(|_| ".".into());
-    let global_file = PathBuf::from(&home).join(".openai-desktop").join("AGENT.md");
+    let global_file = PathBuf::from(&home).join(".crosschat").join("AGENT.md");
     if global_file.exists() {
         global_path = global_file.to_string_lossy().to_string();
         global_content = std::fs::read_to_string(&global_file).unwrap_or_default();
@@ -53,7 +53,7 @@ pub fn write_global_agent_config(content: String) -> Result<(), String> {
     let home = std::env::var("APPDATA")
         .or_else(|_| std::env::var("HOME"))
         .unwrap_or_else(|_| ".".into());
-    let dir = PathBuf::from(&home).join(".openai-desktop");
+    let dir = PathBuf::from(&home).join(".crosschat");
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let file = dir.join("AGENT.md");
     std::fs::write(&file, content).map_err(|e| e.to_string())?;

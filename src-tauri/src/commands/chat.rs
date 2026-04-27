@@ -332,7 +332,7 @@ async fn execute_mcp_tool(tc: &crate::providers::types::ToolCall) -> crate::tool
 /// Phase 1 模拟响应
 async fn simulate_demo_chat(request: &ChatRequest, channel: Channel<StreamChunk>) {
     let header = format!(
-        "你好！我是 OpenAiDesktop 助手。\n\n收到你的消息，当前 Provider: **{}**, 模型: **{}**。\n\n",
+        "你好！我是 CrossChat 助手。\n\n收到你的消息，当前 Provider: **{}**, 模型: **{}**。\n\n",
         request.provider_id, request.model
     );
     let body = "这是一个演示回复。请在设置中配置 API Key 以接入真实模型。";

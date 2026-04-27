@@ -1,4 +1,4 @@
-# OpenAiDesktop
+# CrossChat
 
 跨模型供应商的桌面端 AI 助手。支持多家模型 API，一键切换，不绑定任何厂商。
 
@@ -27,7 +27,7 @@
 
 ## 安装
 
-从 [Releases](https://github.com/tian1419648701/OpenAiDesktop/releases) 页面下载对应平台的安装包：
+从 [Releases](https://github.com/EvilJul/CrossChat/releases) 页面下载对应平台的安装包：
 
 - **Windows**: `.msi` 安装包
 - **Linux**: `.AppImage` / `.deb` 包

@@ -30,7 +30,7 @@ fn sessions_dir() -> PathBuf {
     let home = std::env::var("APPDATA")
         .or_else(|_| std::env::var("HOME"))
         .unwrap_or_else(|_| ".".into());
-    let dir = PathBuf::from(home).join(".openai-desktop").join("sessions");
+    let dir = PathBuf::from(home).join(".crosschat").join("sessions");
     fs::create_dir_all(&dir).ok();
     dir
 }
