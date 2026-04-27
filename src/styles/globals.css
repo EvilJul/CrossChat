@@ -1,0 +1,116 @@
+@import "tailwindcss";
+
+/* Tailwind v4 使用 class-based 暗色模式 */
+@variant dark (&:where(.dark, .dark *));
+
+/* === 设计系统 === */
+/* 配色: 暖灰 + 石板蓝为主调，避免 AI 紫色荧光感 */
+/* accent: #64748b (slate-500), surface: warm gray */
+
+@theme {
+  --color-accent: #64748b;
+  --color-accent-light: #94a3b8;
+  --color-accent-subtle: #f1f5f9;
+  --color-surface: #fafaf9;
+  --color-surface-dark: #1c1c1e;
+  --color-bubble-user: #475569;
+  --color-bubble-ai: #f4f4f5;
+  --color-bubble-ai-dark: #27272a;
+  --color-thinking: #fef3c7;
+  --color-thinking-dark: #292524;
+  --color-thinking-text: #92400e;
+  --color-thinking-text-dark: #fcd34d;
+}
+
+/* 光标闪烁 */
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+.animate-blink {
+  animation: blink 0.8s ease-in-out infinite;
+}
+
+/* 流式文本光标 — 低调暖灰 */
+.streaming-cursor::after {
+  content: "|";
+  animation: blink 0.9s ease-in-out infinite;
+  color: #94a3b8;
+}
+
+/* 字体渲染 */
+* {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* 滚动条 — 暗色适配，默认隐藏悬停显示 */
+.chat-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+
+.chat-scrollbar:hover {
+  scrollbar-color: rgba(148, 163, 184, 0.2) transparent;
+}
+
+.chat-scrollbar::-webkit-scrollbar {
+  width: 4px;
+  background: transparent;
+}
+
+.chat-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.chat-scrollbar::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 10px;
+}
+
+.chat-scrollbar:hover::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.25);
+}
+
+.chat-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.4);
+}
+
+/* 暗色模式滚动条 */
+.dark .chat-scrollbar:hover {
+  scrollbar-color: rgba(100, 116, 139, 0.25) transparent;
+}
+
+.dark .chat-scrollbar:hover::-webkit-scrollbar-thumb {
+  background: rgba(100, 116, 139, 0.3);
+}
+
+.dark .chat-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(100, 116, 139, 0.5);
+}
+
+/* Markdown 代码块 */
+.prose pre {
+  border-radius: 10px;
+  overflow-x: auto;
+  background: #f8fafc !important;
+  border: 1px solid #e2e8f0;
+}
+
+.dark .prose pre {
+  background: #1e293b !important;
+  border-color: #334155;
+}
+
+.prose code {
+  font-size: 0.875em;
+}
+
+.prose p {
+  margin-bottom: 0.5rem;
+}
+
+.prose p:last-child {
+  margin-bottom: 0;
+}
