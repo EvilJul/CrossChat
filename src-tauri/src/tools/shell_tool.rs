@@ -4,6 +4,20 @@ use crate::security::sandbox;
 use std::process::Command;
 use std::time::Duration;
 
+/// Windows 下创建不弹出控制台窗口的 Command
+#[cfg(target_os = "windows")]
+fn hidden_command(program: &str) -> Command {
+    use std::os::windows::process::CommandExt;
+    let mut cmd = Command::new(program);
+    cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+    cmd
+}
+
+#[cfg(not(target_os = "windows"))]
+fn hidden_command(program: &str) -> Command {
+    Command::new(program)
+}
+
 /// 危险命令模式检测（简单子字符串匹配）
 fn detect_dangerous(command: &str) -> Option<&'static str> {
     let lower = command.to_lowercase();
@@ -83,7 +97,7 @@ pub async fn run_command(command: &str, cwd: &str, default_cwd: &str) -> ToolRes
         Duration::from_secs(30),
         tokio::task::spawn_blocking(move || {
             let output = if cfg!(target_os = "windows") {
-                Command::new("cmd")
+                hidden_command("cmd")
                     .args(["/C", &cmd_owned])
                     .current_dir(&work_dir_owned)
                     .output()
@@ -158,7 +172,7 @@ async fn run_python_in_sandbox(command: &str, work_dir: &str) -> ToolResult {
         Duration::from_secs(60),
         tokio::task::spawn_blocking(move || {
             let output = if cfg!(target_os = "windows") {
-                Command::new("cmd").args(["/C", &cmd_owned])
+                hidden_command("cmd").args(["/C", &cmd_owned])
                     .current_dir(&work_dir_owned).output()
             } else {
                 Command::new("sh").args(["-c", &cmd_owned])
@@ -223,7 +237,7 @@ fn detect_install_and_retry(
             // 安装成功，重试原命令
             let retry_cmd = python_sandbox::sandboxify_command(cmd);
             let output = if cfg!(target_os = "windows") {
-                Command::new("cmd").args(["/C", &retry_cmd]).current_dir(work_dir).output()
+                hidden_command("cmd").args(["/C", &retry_cmd]).current_dir(work_dir).output()
             } else {
                 Command::new("sh").args(["-c", &retry_cmd]).current_dir(work_dir).output()
             };

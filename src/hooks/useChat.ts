@@ -26,6 +26,7 @@ export function useChat({ workDir }: UseChatOptions) {
   const addToolCall = useChatStore((s) => s.addToolCall);
   const updateToolCall = useChatStore((s) => s.updateToolCall);
   const setIsGenerating = useChatStore((s) => s.setIsGenerating);
+  const appendStatus = useChatStore((s) => s.appendStatus);
 
   const activeProviderId = useSettingsStore((s) => s.activeProviderId);
   const activeModel = useSettingsStore((s) => s.activeModel);
@@ -99,13 +100,17 @@ export function useChat({ workDir }: UseChatOptions) {
               useWorkspaceStore.getState().triggerRefresh();
             }
             break;
+          case "StatusDelta":
+            // 状态信息存入独立字段，不追加到正文
+            appendStatus(assistantId, chunk.message);
+            break;
           case "Error": appendContent(assistantId, `\n\n> **错误**: ${chunk.message}`); break;
         }
       },
       (error) => { appendContent(assistantId, `\n\n> 错误: ${error}`); setStreaming(assistantId, false); setIsGenerating(false); },
       () => { setStreaming(assistantId, false); setIsGenerating(false); }
     );
-  }, [activeProviderId, activeModel, credentials, providers, workDir, addMessage, appendContent, appendThinking, setThinkingDone, setStreaming, addToolCall, updateToolCall, setIsGenerating]);
+  }, [activeProviderId, activeModel, credentials, providers, workDir, addMessage, appendContent, appendThinking, setThinkingDone, setStreaming, addToolCall, updateToolCall, setIsGenerating, appendStatus]);
 
   const stop = useCallback(() => {
     setIsGenerating(false);

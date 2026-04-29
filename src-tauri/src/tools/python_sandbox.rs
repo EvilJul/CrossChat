@@ -4,6 +4,20 @@
 use std::path::PathBuf;
 use std::process::Command;
 
+/// Windows 下创建不弹出控制台窗口的 Command
+#[cfg(target_os = "windows")]
+fn hidden_command(program: &str) -> Command {
+    use std::os::windows::process::CommandExt;
+    let mut cmd = Command::new(program);
+    cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+    cmd
+}
+
+#[cfg(not(target_os = "windows"))]
+fn hidden_command(program: &str) -> Command {
+    Command::new(program)
+}
+
 /// 沙盒根目录
 fn sandbox_dir() -> PathBuf {
     let home = std::env::var("APPDATA")
@@ -40,7 +54,7 @@ pub fn ensure_sandbox() -> Result<PathBuf, String> {
     std::fs::create_dir_all(&dir).map_err(|e| format!("创建目录失败: {}", e))?;
 
     // 1. 创建虚拟环境
-    let output = Command::new(system_python())
+    let output = hidden_command(system_python())
         .args(["-m", "venv", "--clear"])
         .arg(dir.join("venv"))
         .output()
@@ -79,7 +93,7 @@ print("SANDBOX_READY")
         sandbox_python().display(),
     );
 
-    let output = Command::new(system_python())
+    let output = hidden_command(system_python())
         .args(["-c", &install_script])
         .output()
         .map_err(|e| format!("安装依赖失败: {}", e))?;
@@ -154,7 +168,7 @@ pub fn detect_missing_module(stderr: &str) -> Option<String> {
 /// 自动安装缺失的模块
 pub fn auto_install_module(module: &str) -> Result<String, String> {
     let py = sandbox_python();
-    let output = Command::new(py.display().to_string())
+    let output = hidden_command(&py.display().to_string())
         .args(["-m", "pip", "install", module])
         .output()
         .map_err(|e| format!("安装 {} 失败: {}", module, e))?;

@@ -137,14 +137,24 @@ async fn spawn_mcp(
     #[cfg(not(target_os = "windows"))]
     let (cmd, cmd_args) = (command.to_string(), args.to_vec());
 
-    let mut child = tokio::process::Command::new(&cmd)
+    let mut cmd_builder = tokio::process::Command::new(&cmd);
+    cmd_builder
         .args(&cmd_args)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .env("PUPPETEER_HEADLESS", "true")
         .env("HEADLESS", "true")
-        .env("BROWSER_HEADLESS", "true")
+        .env("BROWSER_HEADLESS", "true");
+
+    // Windows: 不弹出控制台窗口
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd_builder.creation_flags(0x08000000); // CREATE_NO_WINDOW
+    }
+
+    let mut child = cmd_builder
         .spawn()
         .map_err(|e| format!("无法启动 MCP 进程 {}: {}", command, e))?;
 

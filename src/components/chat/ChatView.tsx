@@ -13,7 +13,6 @@ import SettingsDialog from "../settings/SettingsDialog";
 import FeedbackDialog from "../settings/FeedbackDialog";
 import WorkspaceSidebar from "./WorkspaceSidebar";
 import FilePreviewPanel from "./FilePreviewPanel";
-import { ToolMetricsDashboard } from "./ToolMetricsDashboard";
 import { PanelLeftOpen } from "lucide-react";
 
 export default function ChatView() {
@@ -73,7 +72,7 @@ export default function ChatView() {
               </svg>
             </div>
             <h1 className="text-sm font-semibold text-zinc-800 dark:text-zinc-200">CrossChat</h1>
-            <span className="text-xs text-zinc-400 dark:text-zinc-500 bg-zinc-100 dark:bg-zinc-800 px-2 py-0.5 rounded-full">v0.1.0</span>
+            <span className="text-xs text-zinc-400 dark:text-zinc-500 bg-zinc-100 dark:bg-zinc-800 px-2 py-0.5 rounded-full">v0.2.1</span>
             {currentDir && <span className="text-[10px] text-zinc-400 truncate max-w-[200px]" title={currentDir}>{currentDir}</span>}
           </div>
 
@@ -90,9 +89,6 @@ export default function ChatView() {
         </header>
 
         <div className="flex-1 flex flex-col overflow-hidden">
-          <div className="p-4 border-b border-slate-200 dark:border-slate-800">
-            <ToolMetricsDashboard />
-          </div>
           <MessageList />
         </div>
 

@@ -148,8 +148,8 @@ async fn auto_compress_context<T: StreamSender>(
     let mut recent_messages = recent_messages.to_vec();
 
     // 通知前端正在进行压缩
-    let _ = channel.send(StreamChunk::TextDelta {
-        delta: "\n\n> *上下文压缩中... 正在摘要早期对话*\n\n".into(),
+    let _ = channel.send(StreamChunk::StatusDelta {
+        message: "上下文压缩中... 正在摘要早期对话".into(),
     });
 
     // 构建摘要请求
@@ -212,22 +212,21 @@ async fn auto_compress_context<T: StreamSender>(
             compressed.append(&mut recent_messages);
 
             let new_estimated = estimate_tokens(&compressed);
-            let _ = channel.send(StreamChunk::TextDelta {
-                delta: format!(
-                    "> *压缩完成: {} → {} tokens (压缩率 {:.0}%)*\n\n",
+            let _ = channel.send(StreamChunk::StatusDelta {
+                message: format!(
+                    "压缩完成: {} → {} tokens (压缩率 {:.0}%)",
                     estimated,
                     new_estimated,
                     (1.0 - new_estimated as f64 / estimated as f64) * 100.0
-                )
-                .into(),
+                ),
             });
 
             compressed
         }
         Err(_) => {
             // 摘要失败，回退到简单截断
-            let _ = channel.send(StreamChunk::TextDelta {
-                delta: "> *上下文压缩失败，使用截断模式*\n\n".into(),
+            let _ = channel.send(StreamChunk::StatusDelta {
+                message: "上下文压缩失败，使用截断模式".into(),
             });
             recent_messages
         }
@@ -296,8 +295,8 @@ pub async fn run_agent_loop<T: StreamSender + Clone>(
         }
         Err(_) => {
             eprintln!("[stream_chat] MCP 工具发现超时（5s），跳过");
-            let _ = channel.send(StreamChunk::TextDelta {
-                delta: "> MCP 工具加载超时，使用内置工具继续...\n\n".into(),
+            let _ = channel.send(StreamChunk::StatusDelta {
+                message: "MCP 工具加载超时，使用内置工具继续".into(),
             });
             vec![]
         }

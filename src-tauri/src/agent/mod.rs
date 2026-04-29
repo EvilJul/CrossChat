@@ -233,8 +233,8 @@ impl Agent {
             let tool_defs = self.tool_registry.get_all_definitions();
 
             // 发送进度提示，避免前端长时间无反馈
-            let _ = channel.send(StreamChunk::TextDelta {
-                delta: format!("> 思考中 (第 {} 轮)...\n\n", iteration + 1),
+            let _ = channel.send(StreamChunk::StatusDelta {
+                message: format!("思考中 (第 {} 轮)", iteration + 1),
             });
 
             let result = provider
@@ -390,8 +390,8 @@ impl Agent {
 
                     // 执行子任务（单次迭代）
                     let task_desc = task.description.chars().take(40).collect::<String>();
-                    let _ = channel.send(StreamChunk::TextDelta {
-                        delta: format!("> 执行子任务: {}...\n\n", task_desc),
+                    let _ = channel.send(StreamChunk::StatusDelta {
+                        message: format!("执行子任务: {}", task_desc),
                     });
 
                     let tool_defs = self.tool_registry.get_all_definitions();
@@ -481,8 +481,8 @@ impl Agent {
             reasoning_content: None,
         }];
 
-        let _ = channel.send(StreamChunk::TextDelta {
-            delta: "> 汇总子任务结果中...\n\n".into(),
+        let _ = channel.send(StreamChunk::StatusDelta {
+            message: "汇总子任务结果中".into(),
         });
 
         match provider.chat_sync(summary_messages, model).await {

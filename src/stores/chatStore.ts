@@ -27,6 +27,7 @@ export interface ChatMessage {
   attachments?: FileAttachment[];
   isStreaming?: boolean;
   isThinking?: boolean;
+  statusMessages?: string[];
 }
 
 interface ChatStore {
@@ -45,6 +46,7 @@ interface ChatStore {
   ) => void;
   clearMessages: () => void;
   setIsGenerating: (v: boolean) => void;
+  appendStatus: (id: string, message: string) => void;
 }
 
 /// 从原始文本中提取完整的 <think>...</think> 块
@@ -134,4 +136,13 @@ export const useChatStore = create<ChatStore>((set) => ({
   clearMessages: () => set({ messages: [] }),
 
   setIsGenerating: (v) => set({ isGenerating: v }),
+
+  appendStatus: (id, message) =>
+    set((s) => ({
+      messages: s.messages.map((m) =>
+        m.id === id
+          ? { ...m, statusMessages: [...(m.statusMessages || []), message] }
+          : m
+      ),
+    })),
 }));

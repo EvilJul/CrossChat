@@ -106,4 +106,8 @@ pub enum StreamChunk {
         success: bool,
         content: String,
     },
+    /// 状态/进度信息（不作为对话正文展示）
+    StatusDelta {
+        message: String,
+    },
 }
