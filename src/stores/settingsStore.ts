@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { persist } from "zustand/middleware";
 
 export interface ProviderEntry {
   id: string;
@@ -36,39 +37,55 @@ interface SettingsStore {
   removeCredential: (providerId: string) => void;
 }
 
-export const useSettingsStore = create<SettingsStore>((set) => ({
-  activeProviderId: "",
-  activeModel: "",
-  theme: (localStorage.getItem("theme") as SettingsStore["theme"]) || "dark",
-  fontSize: "medium",
-  sendOnEnter: true,
-  autoScroll: true,
-  toolApprovalMode: "dangerous_only",
-  showThinking: "auto" as const,
-  settingsOpen: false,
-  feedbackOpen: false,
-  credentials: {},
+export const useSettingsStore = create<SettingsStore>()(
+  persist(
+    (set) => ({
+      activeProviderId: "",
+      activeModel: "",
+      theme: "dark",
+      fontSize: "medium",
+      sendOnEnter: true,
+      autoScroll: true,
+      toolApprovalMode: "dangerous_only",
+      showThinking: "auto" as const,
+      settingsOpen: false,
+      feedbackOpen: false,
+      credentials: {},
 
-  setActiveProvider: (id) => set({ activeProviderId: id }),
-  setActiveModel: (model) => set({ activeModel: model }),
-  setTheme: (theme) => {
-    localStorage.setItem("theme", theme);
-    set({ theme });
-  },
-  setFontSize: (fontSize) => set({ fontSize }),
-  setSendOnEnter: (sendOnEnter) => set({ sendOnEnter }),
-  setAutoScroll: (autoScroll) => set({ autoScroll }),
-  setToolApprovalMode: (toolApprovalMode) => set({ toolApprovalMode }),
-  setShowThinking: (showThinking) => set({ showThinking }),
-  setSettingsOpen: (settingsOpen) => set({ settingsOpen }),
-  setFeedbackOpen: (feedbackOpen) => set({ feedbackOpen }),
-  setCredential: (providerId, apiKey) =>
-    set((s) => ({
-      credentials: { ...s.credentials, [providerId]: { apiKey } },
-    })),
-  removeCredential: (providerId) =>
-    set((s) => {
-      const { [providerId]: _, ...rest } = s.credentials;
-      return { credentials: rest };
+      setActiveProvider: (id) => set({ activeProviderId: id }),
+      setActiveModel: (model) => set({ activeModel: model }),
+      setTheme: (theme) => set({ theme }),
+      setFontSize: (fontSize) => set({ fontSize }),
+      setSendOnEnter: (sendOnEnter) => set({ sendOnEnter }),
+      setAutoScroll: (autoScroll) => set({ autoScroll }),
+      setToolApprovalMode: (toolApprovalMode) => set({ toolApprovalMode }),
+      setShowThinking: (showThinking) => set({ showThinking }),
+      setSettingsOpen: (settingsOpen) => set({ settingsOpen }),
+      setFeedbackOpen: (feedbackOpen) => set({ feedbackOpen }),
+      setCredential: (providerId, apiKey) =>
+        set((s) => ({
+          credentials: { ...s.credentials, [providerId]: { apiKey } },
+        })),
+      removeCredential: (providerId) =>
+        set((s) => {
+          const { [providerId]: _, ...rest } = s.credentials;
+          return { credentials: rest };
+        }),
     }),
-}));
+    {
+      name: "crosschat-settings",
+      // 不持久化临时状态
+      partialize: (state) => ({
+        activeProviderId: state.activeProviderId,
+        activeModel: state.activeModel,
+        theme: state.theme,
+        fontSize: state.fontSize,
+        sendOnEnter: state.sendOnEnter,
+        autoScroll: state.autoScroll,
+        toolApprovalMode: state.toolApprovalMode,
+        showThinking: state.showThinking,
+        credentials: state.credentials,
+      }),
+    }
+  )
+);

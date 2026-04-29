@@ -1,19 +1,24 @@
-import { useState, useCallback } from "react";
-import { Folder, File, Home, ChevronRight, ChevronDown, X, FolderInput, ArrowUp } from "lucide-react";
+import { useState, useCallback, useEffect } from "react";
+import { Folder, File, Home, ChevronRight, ChevronDown, X, FolderInput, ArrowUp, Trash2 } from "lucide-react";
 import { useWorkspaceStore, type FileEntry } from "../../stores/workspaceStore";
 import { listDirectory, getHomeDir } from "../../lib/tauri-bridge";
 import { open } from "@tauri-apps/plugin-dialog";
+import { invoke } from "@tauri-apps/api/core";
 import { cn } from "../../lib/cn";
 
 export default function WorkspaceSidebar() {
   const currentDir = useWorkspaceStore((s) => s.currentDir);
   const files = useWorkspaceStore((s) => s.files);
   const isSidebarOpen = useWorkspaceStore((s) => s.isSidebarOpen);
+  const selectedFile = useWorkspaceStore((s) => s.selectedFile);
   const setCurrentDir = useWorkspaceStore((s) => s.setCurrentDir);
   const setFiles = useWorkspaceStore((s) => s.setFiles);
   const setSidebarOpen = useWorkspaceStore((s) => s.setSidebarOpen);
+  const setSelectedFile = useWorkspaceStore((s) => s.setSelectedFile);
+  const refreshTrigger = useWorkspaceStore((s) => s.refreshTrigger);
 
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; entry: FileEntry } | null>(null);
   const [loading, setLoading] = useState(false);
   const [dirCache, setDirCache] = useState<Record<string, FileEntry[]>>({});
 
@@ -26,6 +31,13 @@ export default function WorkspaceSidebar() {
     } catch (e) { console.error(e); }
     setLoading(false);
   }, [setFiles]);
+
+  // AI 工具修改文件后自动刷新当前目录
+  useEffect(() => {
+    if (refreshTrigger > 0 && currentDir) {
+      refreshDir(currentDir);
+    }
+  }, [refreshTrigger]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleOpenFolder = async () => {
     const selected = await open({ directory: true, multiple: false });
@@ -64,6 +76,28 @@ export default function WorkspaceSidebar() {
   };
 
   // 返回上级目录
+  const handleContextMenu = (e: React.MouseEvent, entry: FileEntry) => {
+    e.preventDefault();
+    setCtxMenu({ x: e.clientX, y: e.clientY, entry });
+  };
+
+  const handleDeleteFile = async () => {
+    if (!ctxMenu) return;
+    try {
+      await invoke("delete_file_or_dir", { path: ctxMenu.entry.path });
+      if (currentDir) refreshDir(currentDir);
+      if (selectedFile === ctxMenu.entry.path) setSelectedFile(null);
+    } catch (e) { console.error(e); }
+    setCtxMenu(null);
+  };
+
+  // 关闭右键菜单
+  useEffect(() => {
+    const handler = () => setCtxMenu(null);
+    document.addEventListener("click", handler);
+    return () => document.removeEventListener("click", handler);
+  }, []);
+
   const goUp = () => {
     if (!currentDir) return;
     const parent = currentDir.replace(/[/\\][^/\\]+$/, "") || currentDir.replace(/^([A-Z]:)\\/, "$1\\");
@@ -82,12 +116,17 @@ export default function WorkspaceSidebar() {
           <div
             className={cn(
               "flex items-center gap-1 px-2 py-0.5 cursor-pointer hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded text-xs text-zinc-600 dark:text-zinc-400",
-              "select-none"
+              "select-none",
+              selectedFile === entry.path && "bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300"
             )}
             style={{ paddingLeft: `${8 + depth * 12}px` }}
-            onClick={() => toggleExpand(entry)}
-            onDoubleClick={() => enterDir(entry)}
-            title={entry.is_dir ? "单击展开 | 双击进入" : entry.name}
+            onClick={() => {
+              if (entry.is_dir) { toggleExpand(entry); }
+              else { setSelectedFile(entry.path); }
+            }}
+            onDoubleClick={() => { if (entry.is_dir) enterDir(entry); }}
+            onContextMenu={(e) => handleContextMenu(e, entry)}
+            title={entry.is_dir ? "单击展开 | 双击进入 | 右键菜单" : `点击预览 | 右键删除: ${entry.name}`}
           >
             {entry.is_dir ? (
               isExpanded ? <ChevronDown className="w-3 h-3 flex-shrink-0" /> : <ChevronRight className="w-3 h-3 flex-shrink-0" />
@@ -151,6 +190,21 @@ export default function WorkspaceSidebar() {
           renderTree(files)
         )}
       </div>
+
+      {/* 右键菜单 */}
+      {ctxMenu && (
+        <div
+          className="fixed z-50 bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl shadow-xl py-1 min-w-[140px]"
+          style={{ left: ctxMenu.x, top: ctxMenu.y }}
+        >
+          <button
+            onClick={handleDeleteFile}
+            className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+          >
+            <Trash2 className="w-3 h-3" />删除 {ctxMenu.entry.name.length > 20 ? ctxMenu.entry.name.slice(0, 20) + "..." : ctxMenu.entry.name}
+          </button>
+        </div>
+      )}
     </div>
   );
 }

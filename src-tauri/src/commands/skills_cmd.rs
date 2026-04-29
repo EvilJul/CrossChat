@@ -1,17 +1,36 @@
 use serde::Serialize;
 
 use crate::mcp::global_mcp;
+use crate::skills::{global_skills, SkillMeta};
 use crate::tools;
 
 #[derive(Debug, Serialize)]
 pub struct SkillInfo {
     pub name: String,
     pub description: String,
-    pub category: String,       // "file" | "command" | "mcp" | "system"
+    pub category: String, // "file" | "command" | "mcp" | "system" | "skill"
     pub enabled: bool,
 }
 
-/// 获取所有可用的 skills（内置工具 + MCP 插件工具 + 系统能力）
+/// 列出已安装的 Skills（兼容 Claude Code 格式，~/.crosschat/skills/*/SKILL.md）
+#[tauri::command]
+pub fn list_skills() -> Result<Vec<SkillMeta>, String> {
+    Ok(global_skills().list_skills())
+}
+
+/// 启用/禁用某个 Skill
+#[tauri::command]
+pub fn toggle_skill(name: String, enabled: bool) -> Result<(), String> {
+    global_skills().set_enabled(&name, enabled)
+}
+
+/// 删除非内置 Skill
+#[tauri::command]
+pub fn remove_skill(name: String) -> Result<(), String> {
+    global_skills().remove_skill(&name)
+}
+
+/// 获取所有可用的 skills（内置工具 + MCP 插件 + 系统能力 + 已安装 Skills）
 #[tauri::command]
 pub async fn get_available_skills() -> Result<Vec<SkillInfo>, String> {
     let mut skills = Vec::new();
@@ -36,7 +55,6 @@ pub async fn get_available_skills() -> Result<Vec<SkillInfo>, String> {
     let mcp_servers = global_mcp().list_servers().await;
     for server in &mcp_servers {
         if server.enabled {
-            // 尝试获取该服务器的工具列表
             let mcp_tools = crate::mcp::server::discover_tools(
                 server.command.clone(),
                 server.args.clone(),
@@ -45,17 +63,19 @@ pub async fn get_available_skills() -> Result<Vec<SkillInfo>, String> {
             .unwrap_or_default();
 
             for tool in &mcp_tools {
-                // 去掉 mcp_ 前缀
                 let name = tool.name.strip_prefix("mcp_").unwrap_or(&tool.name).to_string();
                 skills.push(SkillInfo {
                     name,
-                    description: tool.description.strip_prefix("[MCP] ").unwrap_or(&tool.description).to_string(),
+                    description: tool
+                        .description
+                        .strip_prefix("[MCP] ")
+                        .unwrap_or(&tool.description)
+                        .to_string(),
                     category: format!("mcp/{}", server.name),
                     enabled: true,
                 });
             }
         } else {
-            // 已安装但未启用的插件
             skills.push(SkillInfo {
                 name: server.name.clone(),
                 description: format!("{} (已禁用)", server.command),
@@ -63,6 +83,16 @@ pub async fn get_available_skills() -> Result<Vec<SkillInfo>, String> {
                 enabled: false,
             });
         }
+    }
+
+    // 已安装的 Skills（兼容 Claude Code 生态）
+    for sk in global_skills().list_skills() {
+        skills.push(SkillInfo {
+            name: sk.name.clone(),
+            description: sk.description.clone(),
+            category: "skill".to_string(),
+            enabled: sk.enabled,
+        });
     }
 
     // 系统能力
@@ -74,7 +104,7 @@ pub async fn get_available_skills() -> Result<Vec<SkillInfo>, String> {
     });
     skills.push(SkillInfo {
         name: "context_compression".into(),
-        description: "对话超 80K tokens 时自动摘要压缩早期消息".into(),
+        description: "对话超 100K tokens 时自动摘要压缩早期消息".into(),
         category: "system".into(),
         enabled: true,
     });

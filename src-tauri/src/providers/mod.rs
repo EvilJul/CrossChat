@@ -1,10 +1,11 @@
 pub mod types;
 pub mod openai_compat;
+pub mod anthropic;
 
 use async_trait::async_trait;
 use std::collections::HashMap;
 use tauri::ipc::Channel;
-use types::{StreamChunk, ToolDefinition, UnifiedMessage};
+use types::{ChatSyncResult, StreamChunk, ToolDefinition, UnifiedMessage};
 
 /// Provider 类型标识
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -24,6 +25,8 @@ pub enum ProviderError {
     ApiError(String),
     #[error("流式传输中断: {0}")]
     StreamError(String),
+    #[error("其他错误: {0}")]
+    Other(String),
 }
 
 /// LLM Provider 统一接口
@@ -42,12 +45,20 @@ pub trait LlmProvider: Send + Sync {
         channel: Channel<StreamChunk>,
     ) -> Result<(), ProviderError>;
 
-    /// 非流式聊天 (用于简单场景如拉取模型列表)
+    /// 非流式聊天 (用于简单场景如上下文压缩)
     async fn chat_sync(
         &self,
         messages: Vec<UnifiedMessage>,
         model: &str,
     ) -> Result<String, ProviderError>;
+
+    /// 非流式聊天（支持工具调用），返回文本内容或工具调用列表
+    async fn chat_sync_with_tools(
+        &self,
+        messages: Vec<UnifiedMessage>,
+        tools: &[ToolDefinition],
+        model: &str,
+    ) -> Result<ChatSyncResult, ProviderError>;
 }
 
 /// Provider 注册表

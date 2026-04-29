@@ -1,13 +1,28 @@
-import { Channel, invoke } from "@tauri-apps/api/core";
+import { invoke } from "@tauri-apps/api/core";
 import type { StreamChunk } from "./providers";
 import type { FileEntry } from "../stores/workspaceStore";
 
 // 将前端消息格式转为 Rust 需要的 UnifiedMessage 格式
-function toUnifiedMessages(messages: Array<{ role: string; content: string }>) {
-  return messages.map((m) => ({
-    role: m.role,
-    content: [{ type: "text", text: m.content }],
-  }));
+function toUnifiedMessages(messages: Array<{ role: string; content: string; attachments?: Array<{ dataUrl: string; mimeType: string; name: string }> }>) {
+  return messages.map((m) => {
+    const blocks: Array<{ type: string; text?: string; source?: { url?: string; path?: string; mime_type?: string } }> = [];
+    // 文本
+    if (m.content) {
+      blocks.push({ type: "text", text: m.content });
+    }
+    // 附件
+    if (m.attachments) {
+      for (const att of m.attachments) {
+        if (att.mimeType.startsWith("image/")) {
+          blocks.push({ type: "image", source: { url: att.dataUrl } });
+        } else {
+          // 非图片文件：作为文本提示添加
+          blocks.push({ type: "text", text: `[上传文件: ${att.name} (${att.mimeType})]\n\n文件内容已编码，请使用 read_file 工具读取。` });
+        }
+      }
+    }
+    return { role: m.role, content: blocks };
+  });
 }
 
 export interface ProviderConfig {
@@ -157,6 +172,27 @@ export async function getAvailableSkills(): Promise<SkillInfo[]> {
   return (await invoke("get_available_skills")) as SkillInfo[];
 }
 
+// === 已安装的 Skills (兼容 Claude Code 格式) ===
+export interface SkillMeta {
+  name: string;
+  description: string;
+  version: string;
+  enabled: boolean;
+  builtin: boolean;
+}
+
+export async function listSkills(): Promise<SkillMeta[]> {
+  return (await invoke("list_skills")) as SkillMeta[];
+}
+
+export async function toggleSkill(name: string, enabled: boolean): Promise<void> {
+  await invoke("toggle_skill", { name, enabled });
+}
+
+export async function removeSkill(name: string): Promise<void> {
+  await invoke("remove_skill", { name });
+}
+
 // 精选 MCP 插件市场
 export const MCP_MARKETPLACE: Array<{
   name: string;
@@ -227,7 +263,7 @@ export async function fetchModels(
   })) as string[];
 }
 
-// Tauri Channel 流式聊天调用
+// Tauri 流式聊天调用（使用轮询机制）
 export async function streamChat(
   providerId: string,
   model: string,
@@ -238,13 +274,9 @@ export async function streamChat(
   onError: (error: string) => void,
   onDone: (finishReason?: string) => void
 ): Promise<void> {
-  const channel = new Channel<StreamChunk>();
-  channel.onmessage = (chunk: StreamChunk) => {
-    onChunk(chunk);
-  };
-
   try {
-    await invoke("stream_chat", {
+    // 启动流式会话
+    const sessionId = await invoke<string>("start_stream_chat", {
       request: {
         provider_id: providerId,
         model,
@@ -254,10 +286,71 @@ export async function streamChat(
         provider_type: providerConfig?.providerType ?? null,
         work_dir: workDir || null,
       },
-      channel,
     });
-    onDone("stop");
+
+    console.log("[tauri-bridge] Stream session started:", sessionId);
+
+    // 轮询获取消息（带超时保护）
+    const POLL_TIMEOUT_MS = 180_000; // 3 分钟总超时
+    const MAX_EMPTY_POLLS = 1200;    // 连续空轮询上限 (1200 * 100ms = 120s)
+    const startTime = Date.now();
+    let emptyPolls = 0;
+    let done = false;
+
+    while (!done) {
+      if (Date.now() - startTime > POLL_TIMEOUT_MS) {
+        console.error("[tauri-bridge] Poll timeout after 3 minutes");
+        onError("请求超时（3分钟无响应），请检查 API 配置和网络连接");
+        onDone("timeout");
+        break;
+      }
+
+      try {
+        const response = await invoke<{ chunks: StreamChunk[]; done: boolean }>(
+          "poll_stream_chunks",
+          { sessionId }
+        );
+
+        // 处理所有接收到的消息块
+        for (const chunk of response.chunks) {
+          onChunk(chunk);
+          if (chunk.type === "Done") {
+            done = true;
+            onDone(chunk.finish_reason);
+          }
+        }
+
+        if (response.done) {
+          done = true;
+        }
+
+        // 空轮询计数：检测后台任务是否已静默失败
+        if (response.chunks.length === 0 && !response.done) {
+          emptyPolls++;
+          if (emptyPolls > MAX_EMPTY_POLLS) {
+            console.error("[tauri-bridge] Too many empty polls, aborting");
+            onError("长时间无响应，请检查 API 配置");
+            onDone("timeout");
+            break;
+          }
+        } else {
+          emptyPolls = 0;
+        }
+
+        // 如果还没完成，等待一小段时间再轮询
+        if (!done) {
+          await new Promise((resolve) => setTimeout(resolve, 100));
+        }
+      } catch (pollError) {
+        console.error("[tauri-bridge] Poll error:", pollError);
+        onError(String(pollError));
+        onDone("error");
+        break;
+      }
+    }
   } catch (e) {
+    console.error("[tauri-bridge] stream_chat error:", e);
     onError(String(e));
+    onDone("error");
   }
 }

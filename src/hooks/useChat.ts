@@ -2,10 +2,15 @@ import { useCallback } from "react";
 import { useChatStore } from "../stores/chatStore";
 import { useSettingsStore } from "../stores/settingsStore";
 import { useProviderStore } from "../stores/providerStore";
+import { useWorkspaceStore } from "../stores/workspaceStore";
 import { streamChat } from "../lib/tauri-bridge";
 import type { StreamChunk } from "../lib/providers";
+import type { FileAttachment } from "../components/chat/ChatInput";
 
 const MAX_CONTEXT_MESSAGES = 40;
+
+/// 不支持图片的模型（名称包含这些词的提示用户）
+const MODELS_WITHOUT_IMAGE = ["deepseek", "qwen", "llama", "mixtral", "codellama", "deepseek-chat", "deepseek-reasoner"];
 
 interface UseChatOptions {
   workDir: string;
@@ -27,8 +32,23 @@ export function useChat({ workDir }: UseChatOptions) {
   const credentials = useSettingsStore((s) => s.credentials);
   const providers = useProviderStore((s) => s.providers);
 
-  const send = useCallback(async (content: string) => {
-    const userMsg = { id: `msg-${Date.now()}`, role: "user" as const, content, timestamp: Date.now() };
+  const send = useCallback(async (content: string, attachments: FileAttachment[] = []) => {
+    // 模型不支持图片时提示
+    if (attachments.some((a) => a.mimeType.startsWith("image/")) && activeModel) {
+      const modelLower = activeModel.toLowerCase();
+      if (MODELS_WITHOUT_IMAGE.some((kw) => modelLower.includes(kw))) {
+        appendContent("", ""); // no-op
+        addMessage({
+          id: `warn-${Date.now()}`,
+          role: "assistant" as const,
+          content: `⚠️ 当前模型 **${activeModel}** 可能不支持图片识别。建议切换到支持 Vision 的模型（如 gpt-4o、claude-sonnet-4-6、gpt-4-turbo）。`,
+          timestamp: Date.now(),
+        });
+        return;
+      }
+    }
+
+    const userMsg = { id: `msg-${Date.now()}`, role: "user" as const, content, timestamp: Date.now(), attachments };
     addMessage(userMsg);
 
     const assistantId = `msg-${Date.now() + 1}`;
@@ -43,10 +63,10 @@ export function useChat({ workDir }: UseChatOptions) {
     }
 
     const currentMessages = useChatStore.getState().messages
-      .filter((m) => m.id !== assistantId && !m.id.startsWith("context-note"))
+      .filter((m) => m.id !== assistantId && !m.id.startsWith("context-note") && !m.id.startsWith("warn-"))
       .slice(-MAX_CONTEXT_MESSAGES)
       .filter((m) => m.content)
-      .map((m) => ({ role: m.role, content: m.content }));
+      .map((m) => ({ role: m.role, content: m.content, attachments: (m as any).attachments }));
 
     await streamChat(
       activeProviderId || "demo", activeModel || "demo-model", currentMessages,
@@ -68,7 +88,17 @@ export function useChat({ workDir }: UseChatOptions) {
             }
             break;
           }
-          case "ToolCallEnd": updateToolCall(assistantId, chunk.id, { status: "completed" }); break;
+          case "ToolCallEnd": updateToolCall(assistantId, chunk.id, { status: "executing" }); break;
+          case "ToolResult":
+            updateToolCall(assistantId, chunk.call_id, {
+              status: chunk.success ? "completed" : "failed",
+              result: chunk.content,
+            });
+            // 文件修改操作后自动刷新侧边栏
+            if (chunk.success && ["write_file", "delete_file"].includes(chunk.name)) {
+              useWorkspaceStore.getState().triggerRefresh();
+            }
+            break;
           case "Error": appendContent(assistantId, `\n\n> **错误**: ${chunk.message}`); break;
         }
       },

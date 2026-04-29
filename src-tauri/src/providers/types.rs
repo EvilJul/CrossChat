@@ -27,6 +27,23 @@ pub enum MessageRole {
 pub enum ContentBlock {
     #[serde(rename = "text")]
     Text { text: String },
+    #[serde(rename = "image")]
+    Image { source: ImageSource },
+}
+
+/// 图片来源
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum ImageSource {
+    /// data: URL (base64)
+    DataUrl {
+        url: String,
+    },
+    /// 文件路径（Rust 端读取后转 base64）
+    FilePath {
+        path: String,
+        mime_type: Option<String>,
+    },
 }
 
 /// 统一工具调用
@@ -45,8 +62,17 @@ pub struct ToolDefinition {
     pub parameters: serde_json::Value,
 }
 
+/// chat_sync_with_tools 的返回类型
+pub enum ChatSyncResult {
+    Content(String),
+    ToolCalls {
+        calls: Vec<ToolCall>,
+        reasoning: Option<String>,
+    },
+}
+
 /// 流式响应块 (Provider 无关)
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
 #[allow(dead_code)]
 pub enum StreamChunk {
@@ -73,5 +99,11 @@ pub enum StreamChunk {
     ThinkingDone {},
     Error {
         message: String,
+    },
+    ToolResult {
+        call_id: String,
+        name: String,
+        success: bool,
+        content: String,
     },
 }

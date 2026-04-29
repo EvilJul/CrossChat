@@ -12,6 +12,8 @@ import MessageList from "./MessageList";
 import SettingsDialog from "../settings/SettingsDialog";
 import FeedbackDialog from "../settings/FeedbackDialog";
 import WorkspaceSidebar from "./WorkspaceSidebar";
+import FilePreviewPanel from "./FilePreviewPanel";
+import { ToolMetricsDashboard } from "./ToolMetricsDashboard";
 import { PanelLeftOpen } from "lucide-react";
 
 export default function ChatView() {
@@ -19,7 +21,6 @@ export default function ChatView() {
 
   const activeProviderId = useSettingsStore((s) => s.activeProviderId);
   const activeModel = useSettingsStore((s) => s.activeModel);
-  const providers = useProviderStore((s) => s.providers);
 
   const isSidebarOpen = useWorkspaceStore((s) => s.isSidebarOpen);
   const setSidebarOpen = useWorkspaceStore((s) => s.setSidebarOpen);
@@ -53,13 +54,6 @@ export default function ChatView() {
     });
   }, [setSidebarOpen, restoreCheckpoint]);
 
-  const getStatus = () => {
-    if (!activeProviderId) return "未配置模型";
-    if (!activeModel) return "未选择模型";
-    const p = providers.find((pp) => pp.id === activeProviderId);
-    return p ? `${p.name} / ${activeModel}` : "未知模型";
-  };
-
   return (
     <div className="flex h-screen bg-white dark:bg-zinc-950">
       <WorkspaceSidebar />
@@ -90,13 +84,18 @@ export default function ChatView() {
               </div>
               <span className={`text-[10px] font-mono ${percent > 90 ? "text-red-500" : percent > 60 ? "text-amber-500" : "text-zinc-400"}`}>{percent}%</span>
             </div>
-            <span className="text-xs text-zinc-400 dark:text-zinc-500">{getStatus()}</span>
             <FeedbackDialog />
             <SettingsDialog />
           </div>
         </header>
 
-        <MessageList />
+        <div className="flex-1 flex flex-col overflow-hidden">
+          <div className="p-4 border-b border-slate-200 dark:border-slate-800">
+            <ToolMetricsDashboard />
+          </div>
+          <MessageList />
+        </div>
+
         <ChatInput
           onSend={send}
           onStop={handleStop}
@@ -104,6 +103,8 @@ export default function ChatView() {
           isGenerating={isGenerating}
         />
       </div>
+
+      <FilePreviewPanel />
     </div>
   );
 }

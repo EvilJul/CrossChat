@@ -33,3 +33,6 @@ src-tauri/gen
 
 # Claude local config
 .claude
+
+# 本地 Cargo 配置（ARM64 Windows 环境变量覆盖，不适用其他平台）
+src-tauri/.cargo

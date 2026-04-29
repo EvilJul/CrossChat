@@ -1,4 +1,5 @@
 pub mod file_tools;
+pub mod python_sandbox;
 pub mod shell_tool;
 
 use serde::{Deserialize, Serialize};
@@ -14,6 +15,17 @@ pub struct ToolResult {
 /// 获取所有可用工具定义 (OpenAI 兼容 JSON Schema)
 pub fn get_all_tool_definitions() -> Vec<ToolDefinition> {
     vec![
+        ToolDefinition {
+            name: "install_skill".into(),
+            description: "从 GitHub 安装一个 Skill（扩展能力）。参数 url 为 GitHub 仓库地址（如 https://github.com/user/repo 或 user/repo）。安装后 AI 自动获得该 Skill 的能力。".into(),
+            parameters: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "url": {"type": "string", "description": "GitHub 仓库 URL 或 user/repo 简写"}
+                },
+                "required": ["url"]
+            }),
+        },
         ToolDefinition {
             name: "read_file".into(),
             description: "读取文件内容。参数 path 为文件路径（绝对路径或相对于工作目录）。".into(),
@@ -77,6 +89,28 @@ pub fn get_all_tool_definitions() -> Vec<ToolDefinition> {
 /// 执行工具调用
 pub async fn execute_tool(name: &str, arguments: &serde_json::Value, work_dir: &str) -> ToolResult {
     match name {
+        "install_skill" => {
+            let url = arguments["url"].as_str().unwrap_or("");
+            if url.is_empty() {
+                return ToolResult {
+                    success: false,
+                    content: "请提供 Skill 的 GitHub URL 或 user/repo 简写".into(),
+                };
+            }
+            match crate::skills::install_skill_from_url(url).await {
+                Ok(meta) => ToolResult {
+                    success: true,
+                    content: format!(
+                        "Skill「{}」安装成功！\n\n版本: {}\n描述: {}\n\n重启对话后即可使用该 Skill 的能力。",
+                        meta.name, meta.version, meta.description
+                    ),
+                },
+                Err(e) => ToolResult {
+                    success: false,
+                    content: format!("Skill 安装失败: {}", e),
+                },
+            }
+        }
         "read_file" => {
             let path = arguments["path"].as_str().unwrap_or("");
             file_tools::read_file(path, work_dir)

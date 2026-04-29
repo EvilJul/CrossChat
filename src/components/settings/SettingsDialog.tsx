@@ -61,7 +61,7 @@ export default function SettingsDialog() {
           </div>
 
           {/* Content */}
-          <div className="flex-1 overflow-y-auto chat-scrollbar p-5">
+          <div className="flex-1 overflow-y-auto overflow-x-hidden chat-scrollbar p-5">
             {tab === "provider" && <ProviderTab />}
             {tab === "mcp" && <McpSection />}
             {tab === "general" && <GeneralTab />}

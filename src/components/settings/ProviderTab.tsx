@@ -1,10 +1,97 @@
-import { useState } from "react";
-import { Plus, Trash2, Check, Eye, EyeOff, Wifi, RefreshCw, Loader2 } from "lucide-react";
+import { useState, useMemo, useRef, useEffect } from "react";
+import { Plus, Trash2, Check, Eye, EyeOff, Wifi, RefreshCw, Loader2, Search } from "lucide-react";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { useProviderStore } from "../../stores/providerStore";
 import { PRESET_PROVIDERS } from "../../lib/providers";
 import { fetchModels } from "../../lib/tauri-bridge";
 import { Button, Input, Select } from "../../shared/ui";
+import { cn } from "../../lib/cn";
+
+/// 可搜索的模型选择组件
+function SearchableModelSelect({
+  models, activeModel, onSelect
+}: {
+  models: string[]; activeModel: string; onSelect: (model: string) => void;
+}) {
+  const [query, setQuery] = useState(activeModel);
+  const [open, setOpen] = useState(false);
+  const [highlight, setHighlight] = useState(0);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  // 模糊匹配：大小写不敏感 + 子串匹配
+  const filtered = useMemo(() => {
+    if (!query.trim()) return models;
+    const q = query.toLowerCase();
+    // 先精确匹配，再模糊匹配
+    const exact = models.filter((m) => m.toLowerCase() === q);
+    const fuzzy = models.filter((m) => m.toLowerCase().includes(q) && m.toLowerCase() !== q);
+    return [...exact, ...fuzzy];
+  }, [models, query]);
+
+  // 点击外部关闭下拉
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  const selectModel = (model: string) => {
+    setQuery(model);
+    onSelect(model);
+    setOpen(false);
+  };
+
+  const handleKey = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      if (open && filtered.length > 0) {
+        selectModel(filtered[highlight] || filtered[0]);
+      } else if (query.trim()) {
+        // 手动输入的模型名也接受
+        onSelect(query.trim());
+        setOpen(false);
+      }
+    }
+    if (e.key === "ArrowDown") { e.preventDefault(); setHighlight((h) => Math.min(h + 1, filtered.length - 1)); }
+    if (e.key === "ArrowUp") { e.preventDefault(); setHighlight((h) => Math.max(h - 1, 0)); }
+  };
+
+  return (
+    <div ref={containerRef} className="relative">
+      <div className="relative">
+        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3 h-3 text-zinc-400" />
+        <input
+          value={query}
+          onChange={(e) => { setQuery(e.target.value); setOpen(true); setHighlight(0); }}
+          onFocus={() => setOpen(true)}
+          onKeyDown={handleKey}
+          placeholder="搜索或输入模型名..."
+          className="w-full text-xs rounded-xl border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-800 pl-7 pr-3 py-1.5 text-zinc-700 dark:text-zinc-300 focus:outline-none focus:ring-1 focus:ring-slate-400"
+        />
+      </div>
+      {open && filtered.length > 0 && (
+        <div className="absolute z-50 mt-1 w-full max-h-40 overflow-y-auto rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 shadow-lg">
+          {filtered.map((model, i) => (
+            <button
+              key={model}
+              onClick={() => selectModel(model)}
+              className={cn(
+                "w-full text-left px-3 py-1.5 text-xs transition-colors",
+                "hover:bg-zinc-100 dark:hover:bg-zinc-700",
+                i === highlight && "bg-slate-100 dark:bg-slate-800",
+                model === activeModel && "text-slate-700 dark:text-slate-300 font-medium"
+              )}
+            >
+              {model}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function ProviderTab() {
   const activeProviderId = useSettingsStore((s) => s.activeProviderId);
@@ -61,7 +148,7 @@ export default function ProviderTab() {
   const saveModels = (providerId: string) => {
     const s = editingModels[providerId] || "";
     const models = s.split(",").map((m) => m.trim()).filter(Boolean);
-    if (models.length > 0) { updateProvider(providerId, { models }); }
+    updateProvider(providerId, { models });
     setEditingModels((prev) => { const n = { ...prev }; delete n[providerId]; return n; });
   };
 
@@ -147,33 +234,31 @@ export default function ProviderTab() {
                   )}
 
                   <div className="flex items-end gap-2">
-                    <div className="flex-1">
+                    <div className="flex-[2]">
                       <div className="flex items-center justify-between mb-0.5">
-                        <span className="text-[10px] text-zinc-400">模型列表（逗号分隔）</span>
+                        <span className="text-[10px] text-zinc-400">搜索模型</span>
                         <button onClick={() => editingModels[provider.id] !== undefined ? saveModels(provider.id) : setEditingModels((s) => ({ ...s, [provider.id]: provider.models.join(", ")}))}
                           className="text-[10px] text-slate-500 hover:text-slate-600">
-                          {editingModels[provider.id] !== undefined ? "保存" : "编辑"}
+                          {editingModels[provider.id] !== undefined ? "保存" : "编辑列表"}
                         </button>
                       </div>
                       {editingModels[provider.id] !== undefined ? (
                         <input autoFocus value={editingModels[provider.id]} onChange={(e) => setEditingModels((s) => ({ ...s, [provider.id]: e.target.value }))}
                           onKeyDown={(e) => { if (e.key === "Enter") saveModels(provider.id); }}
+                          placeholder="模型名称，逗号分隔"
                           className="w-full text-xs rounded-xl border border-slate-300 dark:border-slate-600 bg-white dark:bg-zinc-800 px-3 py-1.5 text-zinc-700 dark:text-zinc-300 focus:outline-none focus:ring-1 focus:ring-slate-400" />
                       ) : (
-                        <div className="text-xs text-zinc-500 py-1.5 truncate">{provider.models.length > 0 ? provider.models.join(", ") : "尚未添加 — 点击测试连接自动拉取"}</div>
+                        <SearchableModelSelect
+                          models={provider.models}
+                          activeModel={provider.id === activeProviderId ? activeModel : ""}
+                          onSelect={(model) => { setActiveProvider(provider.id); setActiveModel(model); }}
+                        />
                       )}
                     </div>
                     <Button variant="secondary" size="sm" onClick={() => handleTest(provider.id)} disabled={isTesting || !cred?.apiKey}>
                       <RefreshCw className={`w-3 h-3 ${isTesting ? "animate-spin" : ""}`} />拉取
                     </Button>
                   </div>
-
-                  {provider.models.length > 0 && (
-                    <Select className="mt-2" value={provider.id === activeProviderId ? activeModel : ""} onChange={(e) => { setActiveProvider(provider.id); setActiveModel(e.target.value); }}>
-                      <option value="" disabled>选择模型</option>
-                      {provider.models.map((m) => (<option key={m} value={m}>{m}</option>))}
-                    </Select>
-                  )}
                 </div>
               );
             })}

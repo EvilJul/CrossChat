@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { persist } from "zustand/middleware";
 import type { ProviderEntry } from "./settingsStore";
 
 interface ProviderStore {
@@ -9,25 +10,32 @@ interface ProviderStore {
   getProvider: (id: string) => ProviderEntry | undefined;
 }
 
-export const useProviderStore = create<ProviderStore>((set, get) => ({
-  providers: [],
+export const useProviderStore = create<ProviderStore>()(
+  persist(
+    (set, get) => ({
+      providers: [],
 
-  addProvider: (p) =>
-    set((s) => ({
-      providers: [...s.providers, p],
-    })),
+      addProvider: (p) =>
+        set((s) => ({
+          providers: [...s.providers, p],
+        })),
 
-  removeProvider: (id) =>
-    set((s) => ({
-      providers: s.providers.filter((p) => p.id !== id),
-    })),
+      removeProvider: (id) =>
+        set((s) => ({
+          providers: s.providers.filter((p) => p.id !== id),
+        })),
 
-  updateProvider: (id, update) =>
-    set((s) => ({
-      providers: s.providers.map((p) =>
-        p.id === id ? { ...p, ...update } : p
-      ),
-    })),
+      updateProvider: (id, update) =>
+        set((s) => ({
+          providers: s.providers.map((p) =>
+            p.id === id ? { ...p, ...update } : p
+          ),
+        })),
 
-  getProvider: (id) => get().providers.find((p) => p.id === id),
-}));
+      getProvider: (id) => get().providers.find((p) => p.id === id),
+    }),
+    {
+      name: "crosschat-providers",
+    }
+  )
+);

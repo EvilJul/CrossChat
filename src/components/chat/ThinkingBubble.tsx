@@ -25,7 +25,7 @@ export default function ThinkingBubble({ content, isStreaming, defaultExpanded =
         )}
       >
         <span className="text-[10px] opacity-60">●</span>
-        <span className="flex-1 font-medium">思考过程</span>
+        <span className="flex-1 font-medium">Thinking...</span>
         {isStreaming && (
           <span className="text-[10px] opacity-50 animate-pulse">...</span>
         )}
@@ -54,7 +54,7 @@ export default function ThinkingBubble({ content, isStreaming, defaultExpanded =
                 isStreaming && "streaming-cursor"
               )}
             >
-              {content || (isStreaming ? "思考中..." : "")}
+              {content || (isStreaming ? "Thinking..." : "")}
             </div>
           </motion.div>
         )}

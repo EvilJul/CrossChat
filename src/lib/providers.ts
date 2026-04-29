@@ -9,6 +9,7 @@ export type StreamChunk =
   | { type: "ToolCallStart"; id: string; name: string }
   | { type: "ToolCallDelta"; id: string; arguments_delta: string }
   | { type: "ToolCallEnd"; id: string }
+  | { type: "ToolResult"; call_id: string; name: string; success: boolean; content: string }
   | { type: "Done"; finish_reason?: string }
   | { type: "Error"; message: string };
 

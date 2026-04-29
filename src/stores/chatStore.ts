@@ -6,8 +6,15 @@ export interface ToolCallState {
   id: string;
   name: string;
   arguments: string;
-  status: "pending" | "running" | "completed" | "failed";
+  status: "pending" | "running" | "executing" | "completed" | "failed";
   result?: string;
+}
+
+export interface FileAttachment {
+  name: string;
+  dataUrl: string;
+  mimeType: string;
+  size: number;
 }
 
 export interface ChatMessage {
@@ -17,6 +24,7 @@ export interface ChatMessage {
   thinking?: string;
   timestamp: number;
   toolCalls?: ToolCallState[];
+  attachments?: FileAttachment[];
   isStreaming?: boolean;
   isThinking?: boolean;
 }
@@ -39,6 +47,19 @@ interface ChatStore {
   setIsGenerating: (v: boolean) => void;
 }
 
+/// 从原始文本中提取完整的 <think>...</think> 块
+/// 返回 { clean: 不含think标签的文本, thinking: 提取出的思考内容 }
+function extractThinkBlocks(raw: string): { clean: string; thinking: string } {
+  const thinkRegex = /<\s*think\s*>([\s\S]*?)<\s*\/\s*think\s*>/gi;
+  const parts: string[] = [];
+  let match;
+  while ((match = thinkRegex.exec(raw)) !== null) {
+    parts.push(match[1].trim());
+  }
+  const clean = raw.replace(thinkRegex, "").trim();
+  return { clean, thinking: parts.join("\n\n") };
+}
+
 export const useChatStore = create<ChatStore>((set) => ({
   messages: [],
   isGenerating: false,
@@ -50,9 +71,18 @@ export const useChatStore = create<ChatStore>((set) => ({
 
   appendContent: (id, delta) =>
     set((s) => ({
-      messages: s.messages.map((m) =>
-        m.id === id ? { ...m, content: m.content + delta } : m
-      ),
+      messages: s.messages.map((m) => {
+        if (m.id !== id) return m;
+        const rawContent = m.content + delta;
+        const { clean, thinking } = extractThinkBlocks(rawContent);
+        return {
+          ...m,
+          content: clean,
+          // 只有提取到新 think 内容时才更新 thinking 字段
+          thinking: thinking ? ((m.thinking || "") + "\n" + thinking).trim() : m.thinking,
+          isThinking: thinking.length > 0 || m.isThinking,
+        };
+      }),
     })),
 
   appendThinking: (id, delta) =>

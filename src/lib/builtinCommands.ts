@@ -102,62 +102,39 @@ export function setupBuiltinCommands(deps: {
     },
   });
 
-  // /skills — 动态获取并展示所有可用 skills
+  // /skills — 快速列出已安装的 Skills
   registerCommand({
     name: "skills",
-    description: "列出 AI 所有可用的技能和工具",
+    description: "列出已安装的 Skills 扩展",
     handler: async () => {
       try {
-        const { getAvailableSkills } = await import("./tauri-bridge");
-        const skills = await getAvailableSkills();
+        const { listSkills } = await import("./tauri-bridge");
+        const skills = await listSkills();
 
         if (skills.length === 0) {
-          return "暂无可用 skills。请在设置中安装 MCP 插件或启用工具。";
+          return "暂无已安装的 Skills。用户可输入 `install_skill <GitHub URL>` 安装，或手动放入 `~/.crosschat/skills/` 目录。";
         }
 
         const enabled = skills.filter((s) => s.enabled);
         const disabled = skills.filter((s) => !s.enabled);
 
-        // 按类别分组
-        const groups: Record<string, typeof skills> = {};
-        for (const s of enabled) {
-          if (!groups[s.category]) groups[s.category] = [];
-          groups[s.category].push(s);
-        }
-
         const lines: string[] = [];
-        lines.push("**Skills**");
-        lines.push(`${enabled.length} skills${disabled.length > 0 ? ` (${disabled.length} 已禁用)` : ""}`);
+        lines.push(`**Skills** (${enabled.length} 启用${disabled.length > 0 ? `, ${disabled.length} 禁用` : ""})`);
         lines.push("");
 
-        for (const [category, items] of Object.entries(groups)) {
-          const catLabel = category.startsWith("mcp/")
-            ? `MCP · ${category.slice(4)}`
-            : category === "file"
-            ? "文件操作"
-            : category === "command"
-            ? "命令行"
-            : category === "system"
-            ? "系统能力"
-            : "其他";
-
-          lines.push(`**${catLabel}** (${items.length})`);
-          for (const skill of items) {
-            lines.push(`  ${skill.name} · ${skill.description}`);
-          }
-          lines.push("");
+        for (const s of enabled) {
+          lines.push(`- **${s.name}** v${s.version} — ${s.description}`);
         }
 
         if (disabled.length > 0) {
-          lines.push("**已禁用**");
           for (const s of disabled) {
-            lines.push(`  ${s.name} · ${s.description}`);
+            lines.push(`- ~~${s.name}~~ (已禁用)`);
           }
         }
 
         return lines.join("\n");
       } catch {
-        return "获取 skills 失败，请确保后端已启动。";
+        return "获取 Skills 失败。";
       }
     },
   });

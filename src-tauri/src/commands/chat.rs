@@ -1,11 +1,32 @@
+use crate::agent::tool_registry::ToolRegistry;
 use crate::commands::agent_cmd::read_agent_config;
 use crate::mcp::global_mcp;
-use crate::providers::openai_compat::{ChatSyncResult, OpenAICompatProvider};
+use crate::providers::anthropic::AnthropicProvider;
+use crate::providers::openai_compat::OpenAICompatProvider;
 use crate::providers::types::{ContentBlock, MessageRole, StreamChunk, UnifiedMessage};
 use crate::providers::LlmProvider;
-use crate::tools::{self};
+use crate::skills::global_skills;
 use serde::Deserialize;
 use tauri::ipc::Channel;
+
+// Trait 用于抽象 Channel 行为
+pub trait StreamSender: Send + Sync {
+    fn send(&self, chunk: StreamChunk) -> Result<(), String>;
+}
+
+// 为 Tauri Channel 实现 trait
+impl StreamSender for Channel<StreamChunk> {
+    fn send(&self, chunk: StreamChunk) -> Result<(), String> {
+        Channel::send(self, chunk).map_err(|e| e.to_string())
+    }
+}
+
+// 为我们的适配器实现 trait
+impl StreamSender for crate::commands::stream_cmd::ChannelAdapter {
+    fn send(&self, chunk: StreamChunk) -> Result<(), String> {
+        crate::commands::stream_cmd::ChannelAdapter::send(self, chunk)
+    }
+}
 
 #[derive(Debug, Deserialize)]
 pub struct ChatRequest {
@@ -28,6 +49,8 @@ pub async fn stream_chat(
     request: ChatRequest,
     channel: Channel<StreamChunk>,
 ) -> Result<(), String> {
+    eprintln!("[stream_chat] 开始处理请求: provider={}, model={}", request.provider_id, request.model);
+
     let has_creds = request.api_key.is_some() && request.api_base.is_some();
 
     if has_creds {
@@ -36,25 +59,44 @@ pub async fn stream_chat(
         let provider_type = request.provider_type.as_deref().unwrap_or("openai-compat");
         let work_dir = request.work_dir.unwrap_or_default();
 
-        match provider_type {
+        eprintln!("[stream_chat] 使用 Provider: {}, API Base: {}", provider_type, api_base);
+
+        let result = match provider_type {
             "openai-compat" => {
                 let provider = OpenAICompatProvider::new(api_base, api_key);
-                run_tool_loop(&provider, request.messages, &request.model, channel, &work_dir)
-                    .await
-                    .map_err(|e| format!("Provider 错误: {}", e))?;
+                run_agent_loop(&provider, request.messages, &request.model, channel.clone(), &work_dir).await
+            }
+            "anthropic" => {
+                let provider = AnthropicProvider::new(api_base, api_key);
+                run_agent_loop(&provider, request.messages, &request.model, channel.clone(), &work_dir).await
             }
             _ => {
-                let _ = channel.send(StreamChunk::Error {
-                    message: format!("不支持的 Provider 类型: {}", provider_type),
-                });
-                return Err(format!("不支持的 Provider 类型: {}", provider_type));
+                let error_msg = format!("不支持的 Provider 类型: {}", provider_type);
+                eprintln!("[stream_chat] {}", error_msg);
+                let _ = channel.send(StreamChunk::Error { message: error_msg.clone() });
+                let _ = channel.send(StreamChunk::Done { finish_reason: Some("error".into()) });
+                return Err(error_msg);
+            }
+        };
+
+        match result {
+            Ok(_) => {
+                eprintln!("[stream_chat] 执行成功");
+                Ok(())
+            }
+            Err(e) => {
+                let error_msg = format!("Provider 错误: {}", e);
+                eprintln!("[stream_chat] {}", error_msg);
+                let _ = channel.send(StreamChunk::Error { message: error_msg.clone() });
+                let _ = channel.send(StreamChunk::Done { finish_reason: Some("error".into()) });
+                Err(error_msg)
             }
         }
     } else {
+        eprintln!("[stream_chat] 使用演示模式");
         simulate_demo_chat(&request, channel).await;
+        Ok(())
     }
-
-    Ok(())
 }
 
 /// 估算消息的 token 数量（粗略：中文 ~1.5 char/token，英文 ~3.5 char/token）
@@ -62,7 +104,7 @@ fn estimate_tokens(messages: &[UnifiedMessage]) -> usize {
     let mut total = 0usize;
     for msg in messages {
         for block in &msg.content {
-            let ContentBlock::Text { text } = block;
+            let ContentBlock::Text { text } = block else { continue; };
             // 混合估算：中文按 1.5，英文按 3.5
             let chinese_chars = text.chars().filter(|c| c > &'\u{2FFF}').count();
             let other_chars = text.len() - chinese_chars;
@@ -82,11 +124,11 @@ fn estimate_tokens(messages: &[UnifiedMessage]) -> usize {
 /// 自动上下文压缩（类似 Claude Code 机制）
 /// 当消息超过 token 阈值时，用 LLM 自动摘要前 60% 的消息，
 /// 将摘要注入为 system 消息，保留最新 40% 的消息。
-async fn auto_compress_context(
-    provider: &OpenAICompatProvider,
+async fn auto_compress_context<T: StreamSender>(
+    provider: &dyn LlmProvider,
     messages: Vec<UnifiedMessage>,
     model: &str,
-    channel: Channel<StreamChunk>,
+    channel: &T,
 ) -> Vec<UnifiedMessage> {
     const COMPRESS_TOKEN_THRESHOLD: usize = 100_000; // 100K tokens 时触发压缩（200K 窗口的 50%）
     const KEEP_RECENT_RATIO: f64 = 0.4; // 保留最近 40% 的消息
@@ -121,8 +163,7 @@ async fn auto_compress_context(
                     .content
                     .iter()
                     .filter_map(|b| {
-                        let ContentBlock::Text { text } = b;
-                        Some(text.as_str())
+                        if let ContentBlock::Text { text } = b { Some(text.as_str()) } else { None }
                     })
                     .collect();
                 if text.trim().is_empty() {
@@ -193,14 +234,15 @@ async fn auto_compress_context(
     }
 }
 
-/// 工具调用循环：LLM → 检测 tool_calls → 执行 → 结果回传 → 继续
-async fn run_tool_loop(
-    provider: &OpenAICompatProvider,
+/// Agent 循环：使用 ReAct 模式智能处理任务
+pub async fn run_agent_loop<T: StreamSender + Clone>(
+    provider: &dyn LlmProvider,
     mut messages: Vec<UnifiedMessage>,
     model: &str,
-    channel: Channel<StreamChunk>,
+    channel: T,
     work_dir: &str,
 ) -> Result<(), crate::providers::ProviderError> {
+    eprintln!("[agent_loop] 步骤1: 读取 agent config");
     // 注入 AGENT.md 约束（如果存在）
     let agent_config = read_agent_config(Some(work_dir.to_string())).unwrap_or_default();
     if agent_config.found && !agent_config.merged.trim().is_empty() {
@@ -219,84 +261,75 @@ async fn run_tool_loop(
         messages.insert(0, system_msg);
     }
 
-    // 上下文压缩：超阈值时自动摘要旧消息（类似 Claude Code 机制）
-    messages = auto_compress_context(provider, messages, model, channel.clone()).await;
+    eprintln!("[agent_loop] 步骤2: 初始化工具注册表");
+    // 使用新的 Agent 系统
+    let mut tool_registry = ToolRegistry::new();
 
-    // 合并内置工具 + MCP 工具
-    let mut tool_definitions = tools::get_all_tool_definitions();
-    let mcp_tools = global_mcp().get_all_tools().await;
-    tool_definitions.extend(mcp_tools);
-    let max_iterations = 5;
-
-    for _iteration in 0..max_iterations {
-        // 用非流式调用检测是否需要工具调用
-        let result = provider
-            .chat_sync_with_tools(messages.clone(), &tool_definitions, model)
-            .await?;
-
-        match result {
-            ChatSyncResult::Content(text) => {
-                for ch in text.chars() {
-                    let _ = channel.send(StreamChunk::TextDelta { delta: ch.to_string() });
-                    tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-                }
-                let _ = channel.send(StreamChunk::Done { finish_reason: Some("stop".into()) });
-                return Ok(());
-            }
-            ChatSyncResult::ToolCalls { calls: tool_calls, reasoning } => {
-                for tc in &tool_calls {
-                    let _ = channel.send(StreamChunk::ToolCallStart { id: tc.id.clone(), name: tc.name.clone() });
-                    let _ = channel.send(StreamChunk::ToolCallDelta { id: tc.id.clone(), arguments_delta: tc.arguments.to_string() });
-                    let _ = channel.send(StreamChunk::ToolCallEnd { id: tc.id.clone() });
-                }
-
-                // 构建 assistant 消息（含 tool_calls + reasoning_content 回传）
-                let assistant_msg = UnifiedMessage {
-                    role: MessageRole::Assistant,
-                    content: vec![],
-                    tool_calls: Some(tool_calls.clone()),
-                    tool_call_id: None,
-                    reasoning_content: reasoning.clone(),
-                };
-                messages.push(assistant_msg);
-
-                for tc in &tool_calls {
-                    let result = if tc.name.starts_with("mcp_") {
-                        // MCP 工具调用：从 server_id 前缀解析（格式: mcp_{server_id}_{tool_name}）
-                        // 这里简化处理：mcp_ 前缀的工具通过 MCP 管理器执行
-                        execute_mcp_tool(tc).await
-                    } else {
-                        tools::execute_tool(&tc.name, &tc.arguments, work_dir).await
-                    };
-
-                    // 通知前端执行结果
-                    let status = if result.success { "完成" } else { "失败" };
-                    let _ = channel.send(StreamChunk::TextDelta {
-                        delta: format!("\n\n> **工具**: {} — {}\n> {}\n", tc.name, status, result.content),
-                    });
-
-                    messages.push(UnifiedMessage {
-                        role: MessageRole::Tool,
-                        content: vec![ContentBlock::Text {
-                            text: result.content.clone(),
-                        }],
-                        tool_calls: None,
-                        tool_call_id: Some(tc.id.clone()),
-                        reasoning_content: None,
-                    });
-                }
-                // 继续循环，让 LLM 基于工具结果生成回复
-            }
-        }
+    eprintln!("[agent_loop] 步骤3: 注入 Skill 上下文");
+    // 注入已启用的 Skill 上下文
+    if let Some(skill_ctx) = global_skills().get_enabled_skill_context() {
+        let skill_msg = UnifiedMessage {
+            role: MessageRole::User,
+            content: vec![ContentBlock::Text {
+                text: skill_ctx,
+            }],
+            tool_calls: None,
+            tool_call_id: None,
+            reasoning_content: None,
+        };
+        messages.insert(0, skill_msg);
     }
 
-    let _ = channel.send(StreamChunk::Error {
-        message: "工具调用超过最大迭代次数".into(),
-    });
-    Ok(())
+    eprintln!("[agent_loop] 步骤4: 上下文压缩检查");
+    // 上下文压缩：超阈值时自动摘要旧消息
+    messages = auto_compress_context(provider, messages, model, &channel).await;
+
+    eprintln!("[agent_loop] 步骤5: 加载 MCP 工具");
+    // 注册 MCP 工具（带超时保护，避免不可用的 MCP 服务器阻塞聊天）
+    let mcp_tools = match tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        global_mcp().get_all_tools(),
+    ).await {
+        Ok(tools) => {
+            eprintln!("[agent_loop] MCP 工具加载完成: {} 个", tools.len());
+            tools
+        }
+        Err(_) => {
+            eprintln!("[stream_chat] MCP 工具发现超时（5s），跳过");
+            let _ = channel.send(StreamChunk::TextDelta {
+                delta: "> MCP 工具加载超时，使用内置工具继续...\n\n".into(),
+            });
+            vec![]
+        }
+    };
+    tool_registry.register_batch(mcp_tools);
+
+    eprintln!("[agent_loop] 步骤6: 启动 ReAct Agent (消息数={})", messages.len());
+    // 使用 ReAct Agent 运行
+    match crate::agent::react::run_react_agent(
+        provider,
+        messages,
+        model,
+        channel.clone(),
+        work_dir,
+        tool_registry,
+    )
+    .await
+    {
+        Ok(_) => {
+            eprintln!("[Agent] 执行成功");
+            Ok(())
+        }
+        Err(e) => {
+            eprintln!("[Agent] 执行失败: {}", e);
+            let _ = channel.send(StreamChunk::Error { message: e.clone() });
+            Err(crate::providers::ProviderError::Other(e))
+        }
+    }
 }
 
 /// 执行 MCP 工具调用
+#[allow(dead_code)]
 async fn execute_mcp_tool(tc: &crate::providers::types::ToolCall) -> crate::tools::ToolResult {
     let mcp = global_mcp();
     let servers = mcp.list_servers().await;
@@ -327,6 +360,85 @@ async fn execute_mcp_tool(tc: &crate::providers::types::ToolCall) -> crate::tool
         success: false,
         content: format!("MCP 工具 {} 执行失败：未找到可用的 MCP 服务器", tc.name),
     }
+}
+
+/// 自愈 Agent：分析工具失败原因，尝试修复，然后重新执行
+#[allow(dead_code)]
+async fn auto_repair(
+    tool_name: &str,
+    arguments: &serde_json::Value,
+    error: &str,
+    work_dir: &str,
+) -> Option<crate::tools::ToolResult> {
+    let error_lower = error.to_lowercase();
+
+    // 文件不存在 → 搜索相似文件
+    if (tool_name == "read_file" || tool_name == "write_file" || tool_name == "delete_file")
+        && (error_lower.contains("not found") || error_lower.contains("不存在") || error_lower.contains("no such file"))
+    {
+        let path = arguments["path"].as_str().unwrap_or("");
+        if !path.is_empty() && !work_dir.is_empty() {
+            let file_name = std::path::Path::new(path)
+                .file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+            if !file_name.is_empty() && file_name.len() >= 2 {
+                let prefix = &file_name.to_lowercase()[..2.min(file_name.len())];
+                let mut similar = Vec::new();
+                // 递归搜索工作目录（浅层）
+                if let Ok(entries) = std::fs::read_dir(work_dir) {
+                    for e in entries.flatten() {
+                        let name = e.file_name().to_string_lossy().to_string();
+                        if name.to_lowercase().contains(prefix) {
+                            let full_path = e.path().to_string_lossy().to_string();
+                            similar.push(full_path);
+                        }
+                    }
+                }
+                if !similar.is_empty() {
+                    return Some(crate::tools::ToolResult {
+                        success: true,
+                        content: format!(
+                            "> 🔧 文件 '{}' 未找到。工作目录中相似文件:\n{}\n> 请使用正确路径重试。",
+                            path,
+                            similar.iter().map(|s| format!("  - {}", s)).collect::<Vec<_>>().join("\n")
+                        ),
+                    });
+                }
+            }
+        }
+        return Some(crate::tools::ToolResult {
+            success: false,
+            content: format!("> 文件未找到。当前工作目录: {}\n> 请用 list_directory 确认文件路径后重试。", work_dir),
+        });
+    }
+
+    // Python 模块缺失 → 已由 python_sandbox 处理，直接重试读/写/命令
+    if error_lower.contains("modulenotfound") || error_lower.contains("no module named") {
+        return Some(crate::tools::ToolResult {
+            success: true,
+            content: "> 🔧 Python 模块缺失，沙盒已自动安装。请重试原命令。".into(),
+        });
+    }
+
+    // 权限拒绝
+    if error_lower.contains("permission denied") || error_lower.contains("access denied")
+        || error_lower.contains("eacces")
+    {
+        return Some(crate::tools::ToolResult {
+            success: false,
+            content: "> 权限不足。请尝试:\n> 1. 换一个工作目录\n> 2. 检查文件是否被其他程序占用\n> 3. 使用 list_directory 确认路径".into(),
+        });
+    }
+
+    // 命令语法错误 → 提取错误信息
+    if tool_name == "run_command" && (error_lower.contains("syntax") || error_lower.contains("unexpected")) {
+        return Some(crate::tools::ToolResult {
+            success: false,
+            content: format!("> 命令执行出错:\n> {}\n> 请修正语法后重试。", error.lines().next().unwrap_or(error)),
+        });
+    }
+
+    // 其他错误 → 返回错误信息让 LLM 自主决策
+    None
 }
 
 /// Phase 1 模拟响应

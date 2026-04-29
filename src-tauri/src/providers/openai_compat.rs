@@ -4,7 +4,7 @@ use serde_json::Value;
 use tauri::ipc::Channel;
 
 use super::{LlmProvider, ProviderError, ProviderType};
-use super::types::{ContentBlock, MessageRole, StreamChunk, ToolCall, ToolDefinition, UnifiedMessage};
+use super::types::{ChatSyncResult, ContentBlock, ImageSource, MessageRole, StreamChunk, ToolCall, ToolDefinition, UnifiedMessage};
 use crate::streaming::sse_parser::SseParser;
 
 /// OpenAI 兼容 Provider
@@ -20,7 +20,10 @@ impl OpenAICompatProvider {
         Self {
             api_base: api_base.trim_end_matches('/').to_string(),
             api_key,
-            client: reqwest::Client::new(),
+            client: reqwest::Client::builder()
+                .timeout(std::time::Duration::from_secs(120))
+                .build()
+                .unwrap_or_else(|_| reqwest::Client::new()),
         }
     }
 
@@ -35,19 +38,48 @@ impl OpenAICompatProvider {
                     MessageRole::Tool => "tool",
                 };
 
-                // 提取文本内容
-                let content: String = msg
-                    .content
-                    .iter()
-                    .filter_map(|block| match block {
-                        ContentBlock::Text { text } => Some(text.as_str()),
-                    })
-                    .collect::<Vec<_>>()
-                    .join("");
+                // 检查是否有图片内容
+                let has_image = msg.content.iter().any(|block| matches!(block, ContentBlock::Image { .. }));
+
+                // 构建 content 字段
+                let content_value = if has_image {
+                    // OpenAI Vision 格式: [{type: "text", text: "..."}, {type: "image_url", ...}]
+                    let parts: Vec<Value> = msg.content.iter().map(|block| match block {
+                        ContentBlock::Text { text } => {
+                            serde_json::json!({"type": "text", "text": text})
+                        }
+                        ContentBlock::Image { source } => {
+                            let url = match source {
+                                ImageSource::DataUrl { url } => url.clone(),
+                                ImageSource::FilePath { path, .. } => {
+                                    // 尝试读取文件并转 base64
+                                    read_file_as_base64(path).unwrap_or_else(|_| path.clone())
+                                }
+                            };
+                            serde_json::json!({
+                                "type": "image_url",
+                                "image_url": { "url": url, "detail": "auto" }
+                            })
+                        }
+                    }).collect();
+                    serde_json::json!(parts)
+                } else {
+                    // 纯文本
+                    let text: String = msg
+                        .content
+                        .iter()
+                        .filter_map(|block| match block {
+                            ContentBlock::Text { text } => Some(text.as_str()),
+                            _ => None,
+                        })
+                        .collect::<Vec<_>>()
+                        .join("");
+                    serde_json::Value::String(text)
+                };
 
                 let mut obj = serde_json::json!({
                     "role": role,
-                    "content": content,
+                    "content": content_value,
                 });
 
                 // 工具调用
@@ -325,11 +357,8 @@ impl LlmProvider for OpenAICompatProvider {
             .unwrap_or("")
             .to_string())
     }
-}
 
-impl OpenAICompatProvider {
-    /// 非流式聊天（支持工具调用），返回文本内容或工具调用列表
-    pub async fn chat_sync_with_tools(
+    async fn chat_sync_with_tools(
         &self,
         messages: Vec<UnifiedMessage>,
         tools: &[ToolDefinition],
@@ -401,8 +430,24 @@ impl OpenAICompatProvider {
     }
 }
 
-/// chat_sync_with_tools 的返回类型
-pub enum ChatSyncResult {
-    Content(String),
-    ToolCalls { calls: Vec<ToolCall>, reasoning: Option<String> },
+/// 读取文件并转为 base64（公开给其他模块使用）
+pub fn read_file_base64(path: &str) -> Result<String, String> {
+    read_file_as_base64(path)
+}
+
+fn read_file_as_base64(path: &str) -> Result<String, String> {
+    use std::io::Read;
+    let mut file = std::fs::File::open(path).map_err(|e| format!("无法读取文件: {}", e))?;
+    let mime = mime_guess::from_path(path).first_or_octet_stream().to_string();
+    let mut buffer = Vec::new();
+    file.read_to_end(&mut buffer).map_err(|e| format!("读取失败: {}", e))?;
+    if buffer.len() > 20 * 1024 * 1024 {
+        return Err("图片文件过大（超过20MB）".into());
+    }
+    Ok(format!("data:{};base64,{}", mime, base64_encode(&buffer)))
+}
+
+fn base64_encode(data: &[u8]) -> String {
+    use base64::Engine;
+    base64::engine::general_purpose::STANDARD.encode(data)
 }
