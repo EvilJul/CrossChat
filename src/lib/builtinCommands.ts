@@ -123,12 +123,12 @@ export function setupBuiltinCommands(deps: {
         lines.push("");
 
         for (const s of enabled) {
-          lines.push(`- **${s.name}** v${s.version} — ${s.description}`);
+          lines.push(`- **${s.name}** v${s.version}`);
         }
 
         if (disabled.length > 0) {
           for (const s of disabled) {
-            lines.push(`- ~~${s.name}~~ (已禁用)`);
+            lines.push(`- ~~${s.name}~~ v${s.version} (已禁用)`);
           }
         }
 

@@ -24,11 +24,11 @@ pub fn read_file(path: &str, work_dir: &str) -> ToolResult {
     match std::fs::read_to_string(&resolved) {
         Ok(content) => ToolResult {
             success: true,
-            content: format!("文件内容:\n{}", content),
+            content: format!("文件 {} 内容:\n{}", path, content),
         },
         Err(e) => ToolResult {
             success: false,
-            content: format!("无法读取文件 {}: {}", resolved.display(), e),
+            content: format!("无法读取文件 {}: {}", path, e),
         },
     }
 }
@@ -41,13 +41,12 @@ pub fn write_file(path: &str, content: &str, work_dir: &str) -> ToolResult {
             content: format!("安全策略拒绝访问: {}", resolved.display()),
         };
     }
-    // 确保父目录存在
     if let Some(parent) = resolved.parent() {
         if !parent.exists() {
             if let Err(e) = std::fs::create_dir_all(parent) {
                 return ToolResult {
                     success: false,
-                    content: format!("无法创建目录 {}: {}", parent.display(), e),
+                    content: format!("无法创建目录: {}", e),
                 };
             }
         }
@@ -55,11 +54,11 @@ pub fn write_file(path: &str, content: &str, work_dir: &str) -> ToolResult {
     match std::fs::write(&resolved, content) {
         Ok(_) => ToolResult {
             success: true,
-            content: format!("文件已创建/更新: {}", resolved.display()),
+            content: format!("文件已创建/更新: {}", path),
         },
         Err(e) => ToolResult {
             success: false,
-            content: format!("无法写入文件 {}: {}", resolved.display(), e),
+            content: format!("无法写入文件 {}: {}", path, e),
         },
     }
 }
@@ -75,17 +74,17 @@ pub fn delete_file(path: &str, work_dir: &str) -> ToolResult {
     if !resolved.exists() {
         return ToolResult {
             success: false,
-            content: format!("文件不存在: {}", resolved.display()),
+            content: format!("文件不存在: {}", path),
         };
     }
     match std::fs::remove_file(&resolved) {
         Ok(_) => ToolResult {
             success: true,
-            content: format!("文件已删除: {}", resolved.display()),
+            content: format!("文件已删除: {}", path),
         },
         Err(e) => ToolResult {
             success: false,
-            content: format!("无法删除文件 {}: {}", resolved.display(), e),
+            content: format!("无法删除文件 {}: {}", path, e),
         },
     }
 }
@@ -101,7 +100,7 @@ pub fn list_dir(path: &str, work_dir: &str) -> ToolResult {
     if !resolved.exists() {
         return ToolResult {
             success: false,
-            content: format!("目录不存在: {}", resolved.display()),
+            content: format!("目录不存在: {}", path),
         };
     }
     match std::fs::read_dir(&resolved) {
@@ -118,14 +117,14 @@ pub fn list_dir(path: &str, work_dir: &str) -> ToolResult {
                 success: true,
                 content: format!(
                     "目录 {} 的内容:\n{}",
-                    resolved.display(),
+                    path,
                     listing.join("\n")
                 ),
             }
         }
         Err(e) => ToolResult {
             success: false,
-            content: format!("无法列出目录 {}: {}", resolved.display(), e),
+            content: format!("无法列出目录 {}: {}", path, e),
         },
     }
 }

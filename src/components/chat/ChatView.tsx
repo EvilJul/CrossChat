@@ -72,7 +72,7 @@ export default function ChatView() {
               </svg>
             </div>
             <h1 className="text-sm font-semibold text-zinc-800 dark:text-zinc-200">CrossChat</h1>
-            <span className="text-xs text-zinc-400 dark:text-zinc-500 bg-zinc-100 dark:bg-zinc-800 px-2 py-0.5 rounded-full">v0.2.1</span>
+            <span className="text-xs text-zinc-400 dark:text-zinc-500 bg-zinc-100 dark:bg-zinc-800 px-2 py-0.5 rounded-full">v0.2.2</span>
             {currentDir && <span className="text-[10px] text-zinc-400 truncate max-w-[200px]" title={currentDir}>{currentDir}</span>}
           </div>
 

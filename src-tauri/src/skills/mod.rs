@@ -93,7 +93,20 @@ impl SkillManager {
     pub fn ensure_builtin_skills(&self) {
         for (name, content) in builtin_skills() {
             let skill_dir = self.skills_dir.join(name);
-            if !skill_dir.join("SKILL.md").exists() {
+            let skill_file = skill_dir.join("SKILL.md");
+
+            // 检查是否需要更新：文件不存在或版本不匹配
+            let needs_update = if !skill_file.exists() {
+                true
+            } else if let Ok(existing) = std::fs::read_to_string(&skill_file) {
+                let existing_ver = extract_yaml_field(&existing, "version").unwrap_or_default();
+                let new_ver = extract_yaml_field(content, "version").unwrap_or_default();
+                existing_ver != new_ver
+            } else {
+                false
+            };
+
+            if needs_update {
                 let _ = self.install_builtin_skill(name, content);
             }
         }
@@ -271,13 +284,19 @@ fn builtin_skills() -> Vec<(&'static str, &'static str)> {
         r#"---
 name: excel-automation
 description: 使用 Python 自动化处理 Excel 文件（.xlsx / .xls / .csv）
-version: "1.0.0"
+version: "1.0.2"
 builtin: true
 ---
 
 # Excel 自动化
 
-你拥有 Excel 文件的读写和自动化处理能力。当你需要处理 Excel 文件时，使用 `run_command` 工具执行 Python 脚本。
+你拥有 Excel 文件的读写和自动化处理能力。
+
+## 重要：工具选择规则
+
+- **普通文本文件**（.txt, .md, .json, .csv 纯文本, .py, .js 等）：必须使用 `read_file` / `write_file` 工具
+- **Excel 二进制文件**（.xlsx, .xls）：使用 `run_command` 执行 Python 脚本
+- **CSV 文件**：优先用 `read_file` 读取；仅当需要复杂数据处理（透视、合并、统计）时才用 Python
 
 ## 依赖检查
 
@@ -321,7 +340,9 @@ df.to_excel('输出.xlsx', index=False)
 - 处理敏感 Excel 数据前先询问用户确认
 - 大文件（>10MB）提示用户可能需要较长时间
 - 始终保留原始文件备份
-- 使用 `write_file` 工具保存生成的 Python 脚本供用户审查
+- **不要**对普通文本文件使用 Python 脚本，直接用 `read_file`/`write_file`
+- **不要**用 `write_file` 保存 Python 脚本文件，直接用 `run_command` 执行内联 Python 代码
+- 执行 Python 时使用 `python -c "..."` 格式，不要生成临时 .py 文件
 "#,
     )]
 }

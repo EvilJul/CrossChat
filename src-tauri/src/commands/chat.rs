@@ -260,6 +260,27 @@ pub async fn run_agent_loop<T: StreamSender + Clone>(
         messages.insert(0, system_msg);
     }
 
+    // 注入当前工作目录信息，引导 AI 使用相对路径
+    if !work_dir.is_empty() {
+        let dir_hint = UnifiedMessage {
+            role: MessageRole::User,
+            content: vec![ContentBlock::Text {
+                text: format!(
+                    "[当前工作目录]\n你的当前工作目录是: {}\n\n\
+                     重要规则:\n\
+                     - 读写文件时使用相对路径（如 \"src/main.rs\"），不要使用绝对路径\n\
+                     - 工具会自动将相对路径解析到当前工作目录\n\
+                     - 不要在消息中输出完整的工作目录路径",
+                    work_dir
+                ),
+            }],
+            tool_calls: None,
+            tool_call_id: None,
+            reasoning_content: None,
+        };
+        messages.insert(0, dir_hint);
+    }
+
     eprintln!("[agent_loop] 步骤2: 初始化工具注册表");
     // 使用新的 Agent 系统
     let mut tool_registry = ToolRegistry::new();
@@ -393,12 +414,16 @@ async fn auto_repair(
                     }
                 }
                 if !similar.is_empty() {
+                    // 返回相对路径，避免 AI 记住绝对路径
+                    let relative_similar: Vec<String> = similar.iter().filter_map(|s| {
+                        std::path::Path::new(s).file_name().map(|n| n.to_string_lossy().to_string())
+                    }).collect();
                     return Some(crate::tools::ToolResult {
                         success: true,
                         content: format!(
-                            "> 🔧 文件 '{}' 未找到。工作目录中相似文件:\n{}\n> 请使用正确路径重试。",
+                            "> 🔧 文件 '{}' 未找到。当前目录中相似文件:\n{}\n> 请使用正确路径重试。",
                             path,
-                            similar.iter().map(|s| format!("  - {}", s)).collect::<Vec<_>>().join("\n")
+                            relative_similar.iter().map(|s| format!("  - {}", s)).collect::<Vec<_>>().join("\n")
                         ),
                     });
                 }
@@ -406,7 +431,7 @@ async fn auto_repair(
         }
         return Some(crate::tools::ToolResult {
             success: false,
-            content: format!("> 文件未找到。当前工作目录: {}\n> 请用 list_directory 确认文件路径后重试。", work_dir),
+            content: "> 文件未找到。请用 list_directory 确认文件路径后重试。".into(),
         });
     }
 

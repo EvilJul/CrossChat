@@ -1,4 +1,6 @@
 import { motion } from "framer-motion";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 interface Props {
   text: string;
@@ -10,16 +12,11 @@ export default function StreamingText({ text, isStreaming }: Props) {
     <motion.div
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
-      className={isStreaming ? "streaming-cursor" : ""}
+      className={`prose prose-sm dark:prose-invert max-w-none
+        [&_pre]:overflow-x-auto [&_code]:break-all [&_a]:break-all
+        ${isStreaming ? "streaming-cursor" : ""}`}
     >
-      {/* 将换行符渲染为 <br /> */}
-      {text.split("\n").map((line, i, arr) => (
-        <span key={i}>
-          {line}
-          {i < arr.length - 1 && <br />}
-        </span>
-      ))}
-      {/* 流式生成中的脉冲指示器 */}
+      <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>
       {isStreaming && (
         <motion.span
           animate={{ opacity: [1, 0.3, 1] }}
