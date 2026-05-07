@@ -105,15 +105,11 @@ pub fn run_python_script(script: &str, args: &[&str]) -> Result<String, String> 
         cmd.arg(arg);
     }
 
-    // 设置PYTHON_DIR环境变量，让Python脚本知道Python目录路径
-    cmd.env("PYTHON_DIR", python_dir.to_string_lossy().to_string());
+    // 设置Python使用UTF-8编码，避免中文乱码
+    cmd.env("PYTHONIOENCODING", "utf-8");
 
-    // 设置PYTHONPATH环境变量，确保Python能找到已安装的库
-    let site_packages = python_dir.join("Lib").join("site-packages");
-    if site_packages.exists() {
-        let python_path = format!("{}", site_packages.display());
-        cmd.env("PYTHONPATH", &python_path);
-    }
+    // 不设置PYTHONPATH，让Python使用python311._pth配置
+    // Python脚本会通过sys.executable动态获取路径
 
     // 设置PATH环境变量，确保能找到Python相关的DLL
     let current_path = std::env::var("PATH").unwrap_or_default();
@@ -122,6 +118,12 @@ pub fn run_python_script(script: &str, args: &[&str]) -> Result<String, String> 
 
     let output = cmd.output()
         .map_err(|e| format!("执行Python脚本失败: {}", e))?;
+
+    // 输出stderr用于调试
+    if !output.stderr.is_empty() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        eprintln!("Python stderr: {}", stderr);
+    }
 
     if output.status.success() {
         let result = String::from_utf8_lossy(&output.stdout).trim().to_string();

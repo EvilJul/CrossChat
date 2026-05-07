@@ -235,12 +235,18 @@ fn read_excel_file(path: &str) -> Option<String> {
 import sys
 import os
 
-# 从环境变量获取Python目录路径
-python_dir = os.environ.get('PYTHON_DIR', '')
-if python_dir:
-    site_packages = os.path.join(python_dir, 'Lib', 'site-packages')
-    if os.path.exists(site_packages):
-        sys.path.insert(0, site_packages)
+# 确保使用UTF-8编码
+sys.stdout.reconfigure(encoding='utf-8')
+sys.stderr.reconfigure(encoding='utf-8')
+
+# 使用sys.executable动态获取Python目录路径
+python_exe = sys.executable
+python_dir = os.path.dirname(os.path.abspath(python_exe))
+site_packages = os.path.join(python_dir, 'Lib', 'site-packages')
+
+# 确保site-packages在sys.path中
+if os.path.exists(site_packages) and site_packages not in sys.path:
+    sys.path.insert(0, site_packages)
 
 try:
     import openpyxl
@@ -274,12 +280,18 @@ fn read_word_file(path: &str) -> Option<String> {
 import sys
 import os
 
-# 从环境变量获取Python目录路径
-python_dir = os.environ.get('PYTHON_DIR', '')
-if python_dir:
-    site_packages = os.path.join(python_dir, 'Lib', 'site-packages')
-    if os.path.exists(site_packages):
-        sys.path.insert(0, site_packages)
+# 确保使用UTF-8编码
+sys.stdout.reconfigure(encoding='utf-8')
+sys.stderr.reconfigure(encoding='utf-8')
+
+# 使用sys.executable动态获取Python目录路径
+python_exe = sys.executable
+python_dir = os.path.dirname(os.path.abspath(python_exe))
+site_packages = os.path.join(python_dir, 'Lib', 'site-packages')
+
+# 确保site-packages在sys.path中
+if os.path.exists(site_packages) and site_packages not in sys.path:
+    sys.path.insert(0, site_packages)
 
 try:
     from docx import Document
@@ -308,12 +320,18 @@ fn read_powerpoint_file(path: &str) -> Option<String> {
 import sys
 import os
 
-# 从环境变量获取Python目录路径
-python_dir = os.environ.get('PYTHON_DIR', '')
-if python_dir:
-    site_packages = os.path.join(python_dir, 'Lib', 'site-packages')
-    if os.path.exists(site_packages):
-        sys.path.insert(0, site_packages)
+# 确保使用UTF-8编码
+sys.stdout.reconfigure(encoding='utf-8')
+sys.stderr.reconfigure(encoding='utf-8')
+
+# 使用sys.executable动态获取Python目录路径
+python_exe = sys.executable
+python_dir = os.path.dirname(os.path.abspath(python_exe))
+site_packages = os.path.join(python_dir, 'Lib', 'site-packages')
+
+# 确保site-packages在sys.path中
+if os.path.exists(site_packages) and site_packages not in sys.path:
+    sys.path.insert(0, site_packages)
 
 try:
     from pptx import Presentation
@@ -345,12 +363,18 @@ fn read_pdf_file(path: &str) -> Option<String> {
 import sys
 import os
 
-# 从环境变量获取Python目录路径
-python_dir = os.environ.get('PYTHON_DIR', '')
-if python_dir:
-    site_packages = os.path.join(python_dir, 'Lib', 'site-packages')
-    if os.path.exists(site_packages):
-        sys.path.insert(0, site_packages)
+# 确保使用UTF-8编码
+sys.stdout.reconfigure(encoding='utf-8')
+sys.stderr.reconfigure(encoding='utf-8')
+
+# 使用sys.executable动态获取Python目录路径
+python_exe = sys.executable
+python_dir = os.path.dirname(os.path.abspath(python_exe))
+site_packages = os.path.join(python_dir, 'Lib', 'site-packages')
+
+# 确保site-packages在sys.path中
+if os.path.exists(site_packages) and site_packages not in sys.path:
+    sys.path.insert(0, site_packages)
 
 try:
     import PyPDF2

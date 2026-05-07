@@ -39,3 +39,21 @@ src-tauri/.cargo
 
 # Python沙盒环境（文件较大，不提交到git）
 src-tauri/resources/python/
+!src-tauri/resources/python/pip.ini
+
+# 临时测试文件
+test_*.py
+test_*.rs
+test_*.exe
+test_*.sh
+test_*.pdb
+diagnose.sh
+start_debug.bat
+
+# 临时调试文档（保留主要文档）
+docs/bug_fix_summary.md
+docs/bug_fix_final_report.md
+docs/how_to_test_fix.md
+docs/tauri_resource_config_fix.md
+docs/encoding_fix.md
+docs/complete_fix_report.md
