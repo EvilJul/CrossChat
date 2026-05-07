@@ -36,3 +36,6 @@ src-tauri/gen
 
 # 本地 Cargo 配置（ARM64 Windows 环境变量覆盖，不适用其他平台）
 src-tauri/.cargo
+
+# Python沙盒环境（文件较大，不提交到git）
+src-tauri/resources/python/
