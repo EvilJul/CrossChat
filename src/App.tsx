@@ -1,7 +1,13 @@
 import ChatView from "./components/chat/ChatView";
+import WelcomeDialog from "./components/WelcomeDialog";
 
 function App() {
-  return <ChatView />;
+  return (
+    <>
+      <ChatView />
+      <WelcomeDialog />
+    </>
+  );
 }
 
 export default App;
