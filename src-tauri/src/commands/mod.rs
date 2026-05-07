@@ -7,6 +7,7 @@ pub mod mcp_health_cmd;
 pub mod memory_cmd;
 pub mod metrics_cmd;
 pub mod provider_cmd;
+pub mod python_cmd;
 pub mod session_cmd;
 pub mod skills_cmd;
 pub mod stream_cmd;

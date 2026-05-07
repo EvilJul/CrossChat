@@ -4,6 +4,7 @@ mod mcp;
 mod memory;
 mod metrics;
 mod providers;
+mod python_env;
 mod security;
 mod skills;
 mod streaming;
@@ -21,6 +22,7 @@ use commands::mcp_health_cmd::{check_mcp_health, get_all_mcp_health};
 use commands::memory_cmd::{cleanup_memories, get_recent_memories, search_memories};
 use commands::metrics_cmd::{cleanup_metrics, get_tool_stats};
 use commands::provider_cmd::test_provider_connection;
+use commands::python_cmd::{get_python_info, run_python_script};
 use commands::session_cmd::{
     create_session, delete_session, get_session, list_sessions, save_messages,
 };
@@ -68,6 +70,8 @@ pub fn run() {
             cleanup_memories,
             get_tool_stats,
             cleanup_metrics,
+            get_python_info,
+            run_python_script,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
