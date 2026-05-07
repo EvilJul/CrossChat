@@ -105,6 +105,9 @@ pub fn run_python_script(script: &str, args: &[&str]) -> Result<String, String> 
         cmd.arg(arg);
     }
 
+    // 设置PYTHON_DIR环境变量，让Python脚本知道Python目录路径
+    cmd.env("PYTHON_DIR", python_dir.to_string_lossy().to_string());
+
     // 设置PYTHONPATH环境变量，确保Python能找到已安装的库
     let site_packages = python_dir.join("Lib").join("site-packages");
     if site_packages.exists() {

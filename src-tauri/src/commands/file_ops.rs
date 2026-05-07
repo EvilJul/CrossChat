@@ -235,11 +235,12 @@ fn read_excel_file(path: &str) -> Option<String> {
 import sys
 import os
 
-# 添加site-packages到Python路径
-python_dir = os.path.dirname(os.path.abspath(sys.executable))
-site_packages = os.path.join(python_dir, 'Lib', 'site-packages')
-if os.path.exists(site_packages):
-    sys.path.insert(0, site_packages)
+# 从环境变量获取Python目录路径
+python_dir = os.environ.get('PYTHON_DIR', '')
+if python_dir:
+    site_packages = os.path.join(python_dir, 'Lib', 'site-packages')
+    if os.path.exists(site_packages):
+        sys.path.insert(0, site_packages)
 
 try:
     import openpyxl
@@ -273,11 +274,12 @@ fn read_word_file(path: &str) -> Option<String> {
 import sys
 import os
 
-# 添加site-packages到Python路径
-python_dir = os.path.dirname(os.path.abspath(sys.executable))
-site_packages = os.path.join(python_dir, 'Lib', 'site-packages')
-if os.path.exists(site_packages):
-    sys.path.insert(0, site_packages)
+# 从环境变量获取Python目录路径
+python_dir = os.environ.get('PYTHON_DIR', '')
+if python_dir:
+    site_packages = os.path.join(python_dir, 'Lib', 'site-packages')
+    if os.path.exists(site_packages):
+        sys.path.insert(0, site_packages)
 
 try:
     from docx import Document
@@ -306,11 +308,12 @@ fn read_powerpoint_file(path: &str) -> Option<String> {
 import sys
 import os
 
-# 添加site-packages到Python路径
-python_dir = os.path.dirname(os.path.abspath(sys.executable))
-site_packages = os.path.join(python_dir, 'Lib', 'site-packages')
-if os.path.exists(site_packages):
-    sys.path.insert(0, site_packages)
+# 从环境变量获取Python目录路径
+python_dir = os.environ.get('PYTHON_DIR', '')
+if python_dir:
+    site_packages = os.path.join(python_dir, 'Lib', 'site-packages')
+    if os.path.exists(site_packages):
+        sys.path.insert(0, site_packages)
 
 try:
     from pptx import Presentation
@@ -342,11 +345,12 @@ fn read_pdf_file(path: &str) -> Option<String> {
 import sys
 import os
 
-# 添加site-packages到Python路径
-python_dir = os.path.dirname(os.path.abspath(sys.executable))
-site_packages = os.path.join(python_dir, 'Lib', 'site-packages')
-if os.path.exists(site_packages):
-    sys.path.insert(0, site_packages)
+# 从环境变量获取Python目录路径
+python_dir = os.environ.get('PYTHON_DIR', '')
+if python_dir:
+    site_packages = os.path.join(python_dir, 'Lib', 'site-packages')
+    if os.path.exists(site_packages):
+        sys.path.insert(0, site_packages)
 
 try:
     import PyPDF2
