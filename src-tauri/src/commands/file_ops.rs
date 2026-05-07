@@ -9,6 +9,16 @@ pub struct FileEntry {
     pub size: u64,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct FilePreviewInfo {
+    pub name: String,
+    pub path: String,
+    pub size: u64,
+    pub is_executable: bool,
+    pub file_type: String,
+    pub preview_content: Option<String>,
+}
+
 /// 列出目录下的文件和子目录
 #[tauri::command]
 pub async fn list_directory(path: String) -> Result<Vec<FileEntry>, String> {
@@ -57,12 +67,136 @@ pub async fn read_file_content(path: String) -> Result<String, String> {
     if file_path.is_dir() {
         return Err(format!("路径是目录，不是文件: {}", path));
     }
-    // 限制预览文件大小为 1MB
+    // 限制预览文件大小为 10MB
     let metadata = file_path.metadata().map_err(|e| format!("读取元数据失败: {}", e))?;
-    if metadata.len() > 1_048_576 {
-        return Err("文件过大（超过 1MB），无法预览".to_string());
+    if metadata.len() > 10_485_760 {
+        return Err("文件过大（超过 10MB），无法预览".to_string());
     }
     std::fs::read_to_string(&file_path).map_err(|e| format!("读取文件失败: {}", e))
+}
+
+/// 获取文件预览信息（支持可执行文件）
+#[tauri::command]
+pub async fn get_file_preview_info(path: String) -> Result<FilePreviewInfo, String> {
+    let file_path = PathBuf::from(&path);
+    if !file_path.exists() {
+        return Err(format!("文件不存在: {}", path));
+    }
+    if file_path.is_dir() {
+        return Err(format!("路径是目录，不是文件: {}", path));
+    }
+
+    let metadata = file_path.metadata().map_err(|e| format!("读取元数据失败: {}", e))?;
+    let name = file_path.file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_default();
+
+    // 检查是否为可执行文件
+    let is_executable = is_executable_file(&file_path);
+    let file_type = get_file_type(&file_path);
+
+    // 如果文件过大（超过10MB），不读取内容
+    if metadata.len() > 10_485_760 {
+        return Ok(FilePreviewInfo {
+            name,
+            path: path.clone(),
+            size: metadata.len(),
+            is_executable,
+            file_type,
+            preview_content: None,
+        });
+    }
+
+    // 根据文件类型决定预览内容
+    let preview_content = if is_executable {
+        Some(format!("可执行文件: {}\n大小: {} 字节\n类型: {}", name, metadata.len(), file_type))
+    } else if is_text_file(&file_path) {
+        std::fs::read_to_string(&file_path).ok()
+    } else {
+        Some(format!("二进制文件: {}\n大小: {} 字节\n类型: {}", name, metadata.len(), file_type))
+    };
+
+    Ok(FilePreviewInfo {
+        name,
+        path: path.clone(),
+        size: metadata.len(),
+        is_executable,
+        file_type,
+        preview_content,
+    })
+}
+
+/// 检查文件是否为可执行文件
+fn is_executable_file(path: &PathBuf) -> bool {
+    let extension = path.extension()
+        .map(|e| e.to_string_lossy().to_lowercase())
+        .unwrap_or_default();
+
+    // Windows可执行文件扩展名
+    let executable_extensions = ["exe", "msi", "bat", "cmd", "com", "scr", "ps1", "vbs", "js"];
+
+    executable_extensions.contains(&extension.as_str())
+}
+
+/// 获取文件类型描述
+fn get_file_type(path: &PathBuf) -> String {
+    let extension = path.extension()
+        .map(|e| e.to_string_lossy().to_lowercase())
+        .unwrap_or_default();
+
+    match extension.as_str() {
+        "exe" => "Windows 可执行文件".to_string(),
+        "msi" => "Windows 安装程序".to_string(),
+        "bat" => "Windows 批处理文件".to_string(),
+        "cmd" => "Windows 命令脚本".to_string(),
+        "com" => "DOS 可执行文件".to_string(),
+        "scr" => "Windows 屏幕保护程序".to_string(),
+        "ps1" => "PowerShell 脚本".to_string(),
+        "vbs" => "VBScript 脚本".to_string(),
+        "js" => "JavaScript 文件".to_string(),
+        "py" => "Python 脚本".to_string(),
+        "rs" => "Rust 源代码".to_string(),
+        "ts" => "TypeScript 源代码".to_string(),
+        "tsx" => "TypeScript React 源代码".to_string(),
+        "jsx" => "JavaScript React 源代码".to_string(),
+        "html" | "htm" => "HTML 文件".to_string(),
+        "css" => "CSS 样式表".to_string(),
+        "json" => "JSON 数据文件".to_string(),
+        "xml" => "XML 数据文件".to_string(),
+        "md" => "Markdown 文档".to_string(),
+        "txt" => "文本文件".to_string(),
+        "log" => "日志文件".to_string(),
+        "csv" => "CSV 数据文件".to_string(),
+        "sql" => "SQL 脚本".to_string(),
+        "sh" => "Shell 脚本".to_string(),
+        "bash" => "Bash 脚本".to_string(),
+        "zip" | "rar" | "7z" | "tar" | "gz" => "压缩文件".to_string(),
+        "jpg" | "jpeg" | "png" | "gif" | "bmp" | "svg" => "图像文件".to_string(),
+        "mp3" | "wav" | "flac" | "aac" => "音频文件".to_string(),
+        "mp4" | "avi" | "mkv" | "mov" => "视频文件".to_string(),
+        "pdf" => "PDF 文档".to_string(),
+        "doc" | "docx" => "Word 文档".to_string(),
+        "xls" | "xlsx" => "Excel 表格".to_string(),
+        "ppt" | "pptx" => "PowerPoint 演示文稿".to_string(),
+        _ => "未知类型".to_string(),
+    }
+}
+
+/// 检查文件是否为文本文件
+fn is_text_file(path: &PathBuf) -> bool {
+    let extension = path.extension()
+        .map(|e| e.to_string_lossy().to_lowercase())
+        .unwrap_or_default();
+
+    let text_extensions = [
+        "txt", "log", "md", "markdown", "json", "xml", "html", "htm", "css", "js", "ts",
+        "tsx", "jsx", "py", "rs", "go", "java", "c", "cpp", "h", "hpp", "cs", "php",
+        "rb", "swift", "kt", "scala", "sh", "bash", "zsh", "fish", "ps1", "bat", "cmd",
+        "sql", "csv", "tsv", "yaml", "yml", "toml", "ini", "cfg", "conf", "env",
+        "gitignore", "dockerignore", "editorconfig", "prettierrc", "eslintrc",
+    ];
+
+    text_extensions.contains(&extension.as_str())
 }
 
 /// 删除文件或空目录（用于工作区右键菜单）

@@ -13,7 +13,7 @@ use commands::agent_cmd::{read_agent_config, write_global_agent_config};
 use commands::chat::stream_chat;
 use commands::stream_cmd::{start_stream_chat, poll_stream_chunks};
 use commands::checkpoint_cmd::{clear_checkpoint, load_checkpoint, save_checkpoint};
-use commands::file_ops::{delete_file_or_dir, get_home_dir, list_directory, read_file_content};
+use commands::file_ops::{delete_file_or_dir, get_home_dir, list_directory, read_file_content, get_file_preview_info};
 use commands::mcp_cmd::{
     add_mcp_server, list_mcp_servers, refresh_mcp_tools, remove_mcp_server, toggle_mcp_server,
 };
@@ -40,6 +40,7 @@ pub fn run() {
             list_directory,
             get_home_dir,
             read_file_content,
+            get_file_preview_info,
             delete_file_or_dir,
             create_session,
             list_sessions,
