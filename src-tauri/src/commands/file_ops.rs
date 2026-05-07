@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
+use crate::python_env;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct FileEntry {
@@ -112,6 +113,8 @@ pub async fn get_file_preview_info(path: String) -> Result<FilePreviewInfo, Stri
         Some(format!("可执行文件: {}\n大小: {} 字节\n类型: {}", name, metadata.len(), file_type))
     } else if is_text_file(&file_path) {
         std::fs::read_to_string(&file_path).ok()
+    } else if is_office_file(&file_path) {
+        read_office_file_content(&file_path)
     } else {
         Some(format!("二进制文件: {}\n大小: {} 字节\n类型: {}", name, metadata.len(), file_type))
     };
@@ -197,6 +200,148 @@ fn is_text_file(path: &PathBuf) -> bool {
     ];
 
     text_extensions.contains(&extension.as_str())
+}
+
+/// 检查文件是否为Office文件
+fn is_office_file(path: &PathBuf) -> bool {
+    let extension = path.extension()
+        .map(|e| e.to_string_lossy().to_lowercase())
+        .unwrap_or_default();
+
+    let office_extensions = ["doc", "docx", "xls", "xlsx", "ppt", "pptx", "pdf"];
+    office_extensions.contains(&extension.as_str())
+}
+
+/// 读取Office文件内容
+fn read_office_file_content(path: &PathBuf) -> Option<String> {
+    let extension = path.extension()
+        .map(|e| e.to_string_lossy().to_lowercase())
+        .unwrap_or_default();
+
+    let path_str = path.to_string_lossy().to_string();
+
+    match extension.as_str() {
+        "xlsx" | "xls" => read_excel_file(&path_str),
+        "docx" | "doc" => read_word_file(&path_str),
+        "pptx" | "ppt" => read_powerpoint_file(&path_str),
+        "pdf" => read_pdf_file(&path_str),
+        _ => Some(format!("不支持的Office文件类型: {}", extension)),
+    }
+}
+
+/// 读取Excel文件
+fn read_excel_file(path: &str) -> Option<String> {
+    let python_script = r#"
+import sys
+import json
+
+try:
+    import openpyxl
+    path = sys.argv[1]
+    wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
+    result = []
+    for sheet_name in wb.sheetnames:
+        ws = wb[sheet_name]
+        sheet_data = []
+        for row in ws.iter_rows(max_row=50, values_only=True):
+            row_data = [str(cell) if cell is not None else "" for cell in row]
+            sheet_data.append("\t".join(row_data))
+        result.append(f"=== 工作表: {sheet_name} ===\n" + "\n".join(sheet_data))
+    wb.close()
+    print("\n\n".join(result))
+except ImportError:
+    print("错误: 需要安装openpyxl库。请运行: pip install openpyxl")
+except Exception as e:
+    print(f"读取Excel文件失败: {e}")
+"#;
+
+    match python_env::run_python_script(python_script, &[path]) {
+        Ok(content) => Some(content),
+        Err(e) => Some(format!("读取Excel文件失败: {}", e)),
+    }
+}
+
+/// 读取Word文件
+fn read_word_file(path: &str) -> Option<String> {
+    let python_script = r#"
+import sys
+
+try:
+    from docx import Document
+    path = sys.argv[1]
+    doc = Document(path)
+    result = []
+    for para in doc.paragraphs:
+        if para.text.strip():
+            result.append(para.text)
+    print("\n".join(result))
+except ImportError:
+    print("错误: 需要安装python-docx库。请运行: pip install python-docx")
+except Exception as e:
+    print(f"读取Word文件失败: {e}")
+"#;
+
+    match python_env::run_python_script(python_script, &[path]) {
+        Ok(content) => Some(content),
+        Err(e) => Some(format!("读取Word文件失败: {}", e)),
+    }
+}
+
+/// 读取PowerPoint文件
+fn read_powerpoint_file(path: &str) -> Option<String> {
+    let python_script = r#"
+import sys
+
+try:
+    from pptx import Presentation
+    path = sys.argv[1]
+    prs = Presentation(path)
+    result = []
+    for i, slide in enumerate(prs.slides, 1):
+        slide_text = [f"--- 幻灯片 {i} ---"]
+        for shape in slide.shapes:
+            if hasattr(shape, "text") and shape.text.strip():
+                slide_text.append(shape.text)
+        result.append("\n".join(slide_text))
+    print("\n\n".join(result))
+except ImportError:
+    print("错误: 需要安装python-pptx库。请运行: pip install python-pptx")
+except Exception as e:
+    print(f"读取PowerPoint文件失败: {e}")
+"#;
+
+    match python_env::run_python_script(python_script, &[path]) {
+        Ok(content) => Some(content),
+        Err(e) => Some(format!("读取PowerPoint文件失败: {}", e)),
+    }
+}
+
+/// 读取PDF文件
+fn read_pdf_file(path: &str) -> Option<String> {
+    let python_script = r#"
+import sys
+
+try:
+    import PyPDF2
+    path = sys.argv[1]
+    with open(path, 'rb') as f:
+        reader = PyPDF2.PdfReader(f)
+        result = []
+        for i, page in enumerate(reader.pages[:50], 1):
+            text = page.extract_text()
+            if text.strip():
+                result.append(f"--- 第 {i} 页 ---\n{text}")
+        print("\n\n".join(result))
+except ImportError:
+    print("错误: 需要安装PyPDF2库。请运行: pip install PyPDF2")
+except Exception as e:
+    print(f"读取PDF文件失败: {e}")
+"#;
+
+    match python_env::run_python_script(python_script, &[path]) {
+        Ok(content) => Some(content),
+        Err(e) => Some(format!("读取PDF文件失败: {}", e)),
+    }
 }
 
 /// 删除文件或空目录（用于工作区右键菜单）
