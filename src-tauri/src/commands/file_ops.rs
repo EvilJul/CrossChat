@@ -233,7 +233,13 @@ fn read_office_file_content(path: &PathBuf) -> Option<String> {
 fn read_excel_file(path: &str) -> Option<String> {
     let python_script = r#"
 import sys
-import json
+import os
+
+# 添加site-packages到Python路径
+python_dir = os.path.dirname(os.path.abspath(sys.executable))
+site_packages = os.path.join(python_dir, 'Lib', 'site-packages')
+if os.path.exists(site_packages):
+    sys.path.insert(0, site_packages)
 
 try:
     import openpyxl
@@ -249,8 +255,8 @@ try:
         result.append(f"=== 工作表: {sheet_name} ===\n" + "\n".join(sheet_data))
     wb.close()
     print("\n\n".join(result))
-except ImportError:
-    print("错误: 需要安装openpyxl库。请运行: pip install openpyxl")
+except ImportError as e:
+    print(f"错误: 需要安装openpyxl库。请运行: pip install openpyxl\n详细信息: {e}")
 except Exception as e:
     print(f"读取Excel文件失败: {e}")
 "#;
@@ -265,6 +271,13 @@ except Exception as e:
 fn read_word_file(path: &str) -> Option<String> {
     let python_script = r#"
 import sys
+import os
+
+# 添加site-packages到Python路径
+python_dir = os.path.dirname(os.path.abspath(sys.executable))
+site_packages = os.path.join(python_dir, 'Lib', 'site-packages')
+if os.path.exists(site_packages):
+    sys.path.insert(0, site_packages)
 
 try:
     from docx import Document
@@ -275,8 +288,8 @@ try:
         if para.text.strip():
             result.append(para.text)
     print("\n".join(result))
-except ImportError:
-    print("错误: 需要安装python-docx库。请运行: pip install python-docx")
+except ImportError as e:
+    print(f"错误: 需要安装python-docx库。请运行: pip install python-docx\n详细信息: {e}")
 except Exception as e:
     print(f"读取Word文件失败: {e}")
 "#;
@@ -291,6 +304,13 @@ except Exception as e:
 fn read_powerpoint_file(path: &str) -> Option<String> {
     let python_script = r#"
 import sys
+import os
+
+# 添加site-packages到Python路径
+python_dir = os.path.dirname(os.path.abspath(sys.executable))
+site_packages = os.path.join(python_dir, 'Lib', 'site-packages')
+if os.path.exists(site_packages):
+    sys.path.insert(0, site_packages)
 
 try:
     from pptx import Presentation
@@ -304,8 +324,8 @@ try:
                 slide_text.append(shape.text)
         result.append("\n".join(slide_text))
     print("\n\n".join(result))
-except ImportError:
-    print("错误: 需要安装python-pptx库。请运行: pip install python-pptx")
+except ImportError as e:
+    print(f"错误: 需要安装python-pptx库。请运行: pip install python-pptx\n详细信息: {e}")
 except Exception as e:
     print(f"读取PowerPoint文件失败: {e}")
 "#;
@@ -320,6 +340,13 @@ except Exception as e:
 fn read_pdf_file(path: &str) -> Option<String> {
     let python_script = r#"
 import sys
+import os
+
+# 添加site-packages到Python路径
+python_dir = os.path.dirname(os.path.abspath(sys.executable))
+site_packages = os.path.join(python_dir, 'Lib', 'site-packages')
+if os.path.exists(site_packages):
+    sys.path.insert(0, site_packages)
 
 try:
     import PyPDF2
@@ -332,8 +359,8 @@ try:
             if text.strip():
                 result.append(f"--- 第 {i} 页 ---\n{text}")
         print("\n\n".join(result))
-except ImportError:
-    print("错误: 需要安装PyPDF2库。请运行: pip install PyPDF2")
+except ImportError as e:
+    print(f"错误: 需要安装PyPDF2库。请运行: pip install PyPDF2\n详细信息: {e}")
 except Exception as e:
     print(f"读取PDF文件失败: {e}")
 "#;
