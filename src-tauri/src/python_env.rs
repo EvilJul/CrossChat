@@ -6,10 +6,12 @@ static PYTHON_ENV_PATH: OnceLock<PathBuf> = OnceLock::new();
 /// 获取Python沙盒环境路径
 pub fn get_python_env_path() -> &'static PathBuf {
     PYTHON_ENV_PATH.get_or_init(|| {
-        // 首先检查开发环境中的Python路径
-        let dev_path = PathBuf::from("src-tauri/resources/python");
-        if dev_path.exists() {
-            return dev_path;
+        // 首先检查开发环境中的Python路径（使用绝对路径）
+        if let Ok(current_dir) = std::env::current_dir() {
+            let dev_path = current_dir.join("src-tauri/resources/python");
+            if dev_path.exists() {
+                return dev_path;
+            }
         }
 
         // 检查打包后的资源路径
@@ -94,12 +96,26 @@ pub fn run_python_script(script: &str, args: &[&str]) -> Result<String, String> 
         return Err("Python环境不存在".to_string());
     }
 
+    let python_dir = get_python_env_path();
+
     let mut cmd = std::process::Command::new(&python_exe);
     cmd.arg("-c").arg(script);
 
     for arg in args {
         cmd.arg(arg);
     }
+
+    // 设置PYTHONPATH环境变量，确保Python能找到已安装的库
+    let site_packages = python_dir.join("Lib").join("site-packages");
+    if site_packages.exists() {
+        let python_path = format!("{}", site_packages.display());
+        cmd.env("PYTHONPATH", &python_path);
+    }
+
+    // 设置PATH环境变量，确保能找到Python相关的DLL
+    let current_path = std::env::var("PATH").unwrap_or_default();
+    let python_path = format!("{};{}", python_dir.display(), current_path);
+    cmd.env("PATH", &python_path);
 
     let output = cmd.output()
         .map_err(|e| format!("执行Python脚本失败: {}", e))?;
