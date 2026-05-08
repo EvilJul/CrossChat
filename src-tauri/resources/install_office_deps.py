@@ -1,44 +1,51 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
-安装Office文件处理依赖库
+Install Office file processing dependencies
 """
 
 import subprocess
 import sys
 
+# Force UTF-8 encoding for stdout/stderr (fix Windows CI encoding issues)
+if sys.stdout.encoding != 'utf-8':
+    sys.stdout.reconfigure(encoding='utf-8')
+if sys.stderr.encoding != 'utf-8':
+    sys.stderr.reconfigure(encoding='utf-8')
+
 def install_package(package):
-    """安装Python包"""
-    print(f"安装 {package}...")
+    """Install Python package"""
+    print(f"Installing {package}...")
     try:
         subprocess.check_call([sys.executable, "-m", "pip", "install", package, "--no-warn-script-location"])
-        print(f"{package} 安装成功")
+        print(f"{package} installed successfully")
         return True
     except subprocess.CalledProcessError as e:
-        print(f"{package} 安装失败: {e}")
+        print(f"{package} installation failed: {e}")
         return False
 
 def main():
-    """主函数"""
+    """Main function"""
     packages = [
-        "openpyxl",      # 读取Excel文件
-        "python-docx",   # 读取Word文件
-        "python-pptx",   # 读取PowerPoint文件
-        "PyPDF2",        # 读取PDF文件
+        "openpyxl",      # Read Excel files
+        "python-docx",   # Read Word files
+        "python-pptx",   # Read PowerPoint files
+        "PyPDF2",        # Read PDF files
     ]
 
-    print("开始安装Office文件处理依赖库...")
+    print("Starting Office file processing dependencies installation...")
 
     success_count = 0
     for package in packages:
         if install_package(package):
             success_count += 1
 
-    print(f"\n安装完成: {success_count}/{len(packages)} 个包安装成功")
+    print(f"\nInstallation complete: {success_count}/{len(packages)} packages installed successfully")
 
     if success_count == len(packages):
-        print("所有依赖库安装成功！")
+        print("All dependencies installed successfully!")
     else:
-        print("部分依赖库安装失败，某些文件格式可能无法预览")
+        print("Some dependencies failed to install, certain file formats may not be previewable")
 
 if __name__ == "__main__":
     main()

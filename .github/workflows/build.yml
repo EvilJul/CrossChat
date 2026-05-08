@@ -133,25 +133,26 @@ jobs:
           python/bin/python3 install_office_deps.py
 
       - name: Build Tauri app
-        run: npm run tauri build
+        run: npm run tauri build -- --bundles deb,rpm
+        continue-on-error: false
 
       - name: Check bundle size
         run: |
           echo "=== Linux Build Artifacts Size ==="
-          du -sh src-tauri/target/release/bundle/appimage/*.AppImage || echo "No AppImage files"
           du -sh src-tauri/target/release/bundle/deb/*.deb || echo "No DEB files"
-
-      - name: Upload Linux AppImage
-        uses: actions/upload-artifact@v4
-        with:
-          name: linux-appimage
-          path: src-tauri/target/release/bundle/appimage/*.AppImage
+          du -sh src-tauri/target/release/bundle/rpm/*.rpm || echo "No RPM files"
 
       - name: Upload Linux deb
         uses: actions/upload-artifact@v4
         with:
           name: linux-deb
           path: src-tauri/target/release/bundle/deb/*.deb
+
+      - name: Upload Linux rpm
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-rpm
+          path: src-tauri/target/release/bundle/rpm/*.rpm
 
   release:
     if: startsWith(github.ref, 'refs/tags/')
@@ -168,8 +169,8 @@ jobs:
           files: |
             windows-installer/*.msi
             windows-exe/*.exe
-            linux-appimage/*.AppImage
             linux-deb/*.deb
+            linux-rpm/*.rpm
           draft: false
           prerelease: ${{ contains(github.ref, 'Beta') }}
           generate_release_notes: true
