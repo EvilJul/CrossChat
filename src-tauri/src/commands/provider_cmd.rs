@@ -132,71 +132,55 @@ pub async fn test_provider_connection(
             Ok(models)
         }
         "anthropic" => {
-            // 先尝试 Anthropic 原生认证
-            let url = format!("{}/models", base);
+            // Anthropic API 不提供 /models 端点
+            // 直接返回预设的模型列表
+            eprintln!("[provider_cmd] Anthropic 不支持模型列表 API，返回预设模型");
+            
+            // 验证 API Key 是否有效（通过发送一个简单的请求）
+            let url = format!("{}/messages", base);
+            let test_request = serde_json::json!({
+                "model": "claude-sonnet-4-6",
+                "max_tokens": 1,
+                "messages": [{
+                    "role": "user",
+                    "content": "test"
+                }]
+            });
+            
             let response = client
-                .get(&url)
+                .post(&url)
                 .header("x-api-key", &api_key)
                 .header("anthropic-version", "2023-06-01")
+                .header("content-type", "application/json")
+                .json(&test_request)
                 .send()
                 .await
                 .map_err(|e| format!("连接失败: {}", e))?;
 
-            if response.status().is_success() {
-                let data: serde_json::Value = response
-                    .json()
-                    .await
-                    .map_err(|e| format!("解析响应失败: {}", e))?;
-                let models = parse_model_list(&data);
-                if !models.is_empty() {
-                    return Ok(models);
+            if !response.status().is_success() {
+                let status = response.status();
+                let body = response.text().await.unwrap_or_default();
+                
+                // 检查是否是认证错误
+                if status == 401 {
+                    return Err("API Key 无效。请检查您的 Anthropic API Key 是否正确。".to_string());
                 }
-                // 格式不标准，继续往下尝试 OpenAI 兼容认证
-            }
-
-            // Anthropic 认证失败或模型列表为空，自动降级尝试 OpenAI 兼容认证
-            // 注意：这里不直接用上个 response 的 status，而是重新发起请求
-            let url2 = format!("{}/models", base);
-            let response2 = client
-                .get(&url2)
-                .header("Authorization", format!("Bearer {}", api_key))
-                .send()
-                .await
-                .map_err(|e| format!("连接失败 (OpenAI 兼容降级): {}", e))?;
-
-            if !response2.status().is_success() {
-                let status = response2.status();
-                let body = response2.text().await.unwrap_or_default();
+                
                 return Err(format!(
-                    "HTTP {}: {}。\n\n已尝试 Anthropic 原生和 OpenAI 兼容两种认证方式均失败。请检查 Base URL 和 API Key 是否正确。",
+                    "HTTP {}: {}。请检查 API Key 和网络连接。",
                     status, body
                 ));
             }
 
-            let data: serde_json::Value = response2
-                .json()
-                .await
-                .map_err(|e| format!("解析响应失败: {}", e))?;
-
-            let mut models = parse_model_list(&data);
-            models.retain(|id| {
-                !id.contains("whisper")
-                    && !id.contains("tts")
-                    && !id.contains("dall-e")
-                    && !id.contains("embedding")
-                    && !id.contains("moderation")
-            });
-
-            if models.is_empty() {
-                let preview = data.to_string();
-                let preview = if preview.len() > 200 { &preview[..200] } else { &preview };
-                return Err(format!(
-                    "未找到可用模型，API 返回格式可能不标准。\n\n返回内容: {}\n\n请手动在模型列表中输入模型名称，或检查 Base URL 是否正确。",
-                    preview
-                ));
-            }
-
-            Ok(models)
+            // API Key 有效，返回预设模型列表
+            Ok(vec![
+                "claude-sonnet-4-6".to_string(),
+                "claude-opus-4-6".to_string(),
+                "claude-haiku-4-5".to_string(),
+                "claude-3-5-sonnet-20241022".to_string(),
+                "claude-3-5-haiku-20241022".to_string(),
+                "claude-3-opus-20240229".to_string(),
+            ])
         }
         _ => Err(format!("不支持的 Provider 类型: {}", provider_type)),
     }

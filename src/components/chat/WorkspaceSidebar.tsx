@@ -115,9 +115,9 @@ export default function WorkspaceSidebar() {
         <div key={entry.path}>
           <div
             className={cn(
-              "flex items-center gap-1 px-2 py-0.5 cursor-pointer hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded text-xs text-zinc-600 dark:text-zinc-400",
+              "flex items-center gap-1 px-2 py-0.5 cursor-pointer hover:bg-gradient-to-r hover:from-purple-50 hover:to-blue-50 dark:hover:from-purple-900/20 dark:hover:to-blue-900/20 rounded text-xs text-zinc-600 dark:text-zinc-400 transition-all duration-200",
               "select-none",
-              selectedFile === entry.path && "bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300"
+              selectedFile === entry.path && "bg-gradient-to-r from-purple-100 to-blue-100 dark:from-purple-900/30 dark:to-blue-900/30 text-purple-700 dark:text-purple-300 font-medium border border-purple-200 dark:border-purple-800/50"
             )}
             style={{ paddingLeft: `${8 + depth * 12}px` }}
             onClick={() => {
@@ -149,27 +149,27 @@ export default function WorkspaceSidebar() {
   if (!isSidebarOpen) return null;
 
   return (
-    <div className="flex flex-col w-56 border-r border-zinc-200/70 dark:border-zinc-700/70 bg-zinc-50 dark:bg-zinc-900 h-full">
-      <div className="p-3 border-b border-zinc-200/70 dark:border-zinc-700/70 space-y-2">
+    <div className="flex flex-col w-56 border-r border-zinc-200/70 dark:border-zinc-700/70 bg-gradient-to-b from-zinc-50 to-white dark:from-zinc-900 dark:to-zinc-900/95 h-full">
+      <div className="p-3 border-b border-zinc-200/70 dark:border-zinc-700/70 space-y-2 bg-gradient-to-r from-purple-50/30 to-blue-50/30 dark:from-purple-950/10 dark:to-blue-950/10">
         <div className="flex items-center justify-between">
-          <span className="text-xs font-medium text-zinc-400">工作区</span>
-          <button onClick={() => setSidebarOpen(false)} className="p-0.5 rounded text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300">
+          <span className="text-xs font-medium bg-gradient-to-r from-purple-600 to-blue-600 bg-clip-text text-transparent">工作区</span>
+          <button onClick={() => setSidebarOpen(false)} className="p-0.5 rounded text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 hover:bg-white/50 dark:hover:bg-zinc-800/50 transition-all duration-200">
             <X className="w-3.5 h-3.5" />
           </button>
         </div>
         <div className="flex gap-1.5">
           <button onClick={handleOpenFolder}
-            className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 rounded-xl text-xs bg-white dark:bg-zinc-800 border border-zinc-200/70 dark:border-zinc-700/70 hover:border-slate-300 dark:hover:border-slate-600 text-zinc-600 dark:text-zinc-400 transition-all duration-200">
+            className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 rounded-xl text-xs bg-white dark:bg-zinc-800 border border-zinc-200/70 dark:border-zinc-700/70 hover:border-purple-300 dark:hover:border-purple-600 text-zinc-600 dark:text-zinc-400 transition-all duration-200 hover:shadow-md hover:shadow-purple-500/10 hover:-translate-y-0.5">
             <FolderInput className="w-3 h-3" />打开
           </button>
           <button onClick={handleOpenHome}
-            className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 rounded-xl text-xs bg-white dark:bg-zinc-800 border border-zinc-200/70 dark:border-zinc-700/70 hover:border-slate-300 dark:hover:border-slate-600 text-zinc-600 dark:text-zinc-400 transition-all duration-200">
+            className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 rounded-xl text-xs bg-white dark:bg-zinc-800 border border-zinc-200/70 dark:border-zinc-700/70 hover:border-blue-300 dark:hover:border-blue-600 text-zinc-600 dark:text-zinc-400 transition-all duration-200 hover:shadow-md hover:shadow-blue-500/10 hover:-translate-y-0.5">
             <Home className="w-3 h-3" />主目录
           </button>
         </div>
         {currentDir && (
           <div className="flex items-center gap-1">
-            <button onClick={goUp} className="p-0.5 rounded text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 flex-shrink-0" title="返回上级">
+            <button onClick={goUp} className="p-0.5 rounded text-zinc-400 hover:text-purple-600 dark:hover:text-purple-400 hover:bg-purple-50 dark:hover:bg-purple-900/20 flex-shrink-0 transition-all duration-200" title="返回上级">
               <ArrowUp className="w-3 h-3" />
             </button>
             <div className="text-[10px] text-zinc-400 truncate bg-white dark:bg-zinc-800 rounded px-2 py-1 border border-zinc-200/70 dark:border-zinc-700/70 flex-1" title={currentDir}>

@@ -57,3 +57,10 @@ docs/how_to_test_fix.md
 docs/tauri_resource_config_fix.md
 docs/encoding_fix.md
 docs/complete_fix_report.md
+
+# 图标生成临时文件
+design/icon-1024.png
+update-icon.bat
+update-icon-simple.bat
+generate-icons.js
+更新图标指南.md

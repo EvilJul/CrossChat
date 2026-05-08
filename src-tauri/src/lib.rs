@@ -17,6 +17,7 @@ use commands::checkpoint_cmd::{clear_checkpoint, load_checkpoint, save_checkpoin
 use commands::file_ops::{delete_file_or_dir, get_home_dir, list_directory, read_file_content, get_file_preview_info};
 use commands::mcp_cmd::{
     add_mcp_server, list_mcp_servers, refresh_mcp_tools, remove_mcp_server, toggle_mcp_server,
+    validate_mcp_command, test_mcp_server,
 };
 use commands::mcp_health_cmd::{check_mcp_health, get_all_mcp_health};
 use commands::memory_cmd::{cleanup_memories, get_recent_memories, search_memories};
@@ -54,6 +55,8 @@ pub fn run() {
             toggle_mcp_server,
             list_mcp_servers,
             refresh_mcp_tools,
+            validate_mcp_command,
+            test_mcp_server,
             check_mcp_health,
             get_all_mcp_health,
             get_available_skills,

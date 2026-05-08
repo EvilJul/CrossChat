@@ -90,28 +90,55 @@ async fn do_mcp_handshake_and_request(
     init_req: &Value,
     actual_req: &Value,
 ) -> Result<Value, String> {
+    eprintln!("[MCP handshake] 开始 MCP 握手流程");
+    
     let (mut child, mut stdin, stdout) = spawn_mcp(command, args).await?;
     let mut reader = BufReader::new(stdout);
     let mut line_buf = String::new();
 
+    // 捕获 stderr 用于调试
+    let stderr = child.stderr.take();
+    if let Some(mut stderr) = stderr {
+        tokio::spawn(async move {
+            use tokio::io::AsyncReadExt;
+            let mut buf = Vec::new();
+            if let Ok(n) = stderr.read_to_end(&mut buf).await {
+                if n > 0 {
+                    if let Ok(s) = String::from_utf8(buf) {
+                        eprintln!("[MCP stderr] {}", s);
+                    }
+                }
+            }
+        });
+    }
+
     // 1. 发送 initialize 请求
+    eprintln!("[MCP handshake] 发送 initialize 请求");
     write_request(&mut stdin, init_req).await?;
+    
     // 2. 读取 initialize 响应
+    eprintln!("[MCP handshake] 等待 initialize 响应");
     let _init = read_response_from_reader(&mut reader, &mut line_buf, 30).await?;
+    eprintln!("[MCP handshake] 收到 initialize 响应");
 
     // 3. 发送 initialized 通知（JSON-RPC 通知：无 id，无需响应）
+    eprintln!("[MCP handshake] 发送 initialized 通知");
     let notif = serde_json::json!({"jsonrpc": "2.0", "method": "notifications/initialized"});
     write_request(&mut stdin, &notif).await?;
 
     // 4. 发送实际请求（tools/list 或 tools/call）
+    eprintln!("[MCP handshake] 发送实际请求: {}", actual_req["method"]);
     write_request(&mut stdin, actual_req).await?;
 
     // 5. 读取响应
+    eprintln!("[MCP handshake] 等待实际响应");
     let response = read_response_from_reader(&mut reader, &mut line_buf, 20).await?;
+    eprintln!("[MCP handshake] 收到实际响应");
 
     // 6. 清理
     let _ = tokio::time::timeout(std::time::Duration::from_secs(3), child.wait()).await;
     child.kill().await.ok();
+    eprintln!("[MCP handshake] 进程已清理");
 
     Ok(response)
 }
@@ -122,8 +149,9 @@ async fn spawn_mcp(
 ) -> Result<(Child, ChildStdin, tokio::process::ChildStdout), String> {
     #[cfg(target_os = "windows")]
     let (cmd, cmd_args) = {
-        if command == "npx" {
-            let mut a = vec!["/c".to_string(), "npx".to_string()];
+        // Windows 上 npx 实际是 npx.cmd，需要通过 cmd /c 调用
+        if command == "npx" || command == "npx.cmd" {
+            let mut a = vec!["/c".to_string(), "npx.cmd".to_string()];
             a.extend(args.iter().cloned());
             ("cmd".to_string(), a)
         } else if command == "uvx" || command == "uv" {
@@ -137,6 +165,8 @@ async fn spawn_mcp(
     #[cfg(not(target_os = "windows"))]
     let (cmd, cmd_args) = (command.to_string(), args.to_vec());
 
+    eprintln!("[MCP spawn] 启动命令: {} {:?}", cmd, cmd_args);
+
     let mut cmd_builder = tokio::process::Command::new(&cmd);
     cmd_builder
         .args(&cmd_args)
@@ -145,7 +175,8 @@ async fn spawn_mcp(
         .stderr(Stdio::piped())
         .env("PUPPETEER_HEADLESS", "true")
         .env("HEADLESS", "true")
-        .env("BROWSER_HEADLESS", "true");
+        .env("BROWSER_HEADLESS", "true")
+        .env("NODE_NO_WARNINGS", "1"); // 禁用 Node.js 警告
 
     // Windows: 不弹出控制台窗口
     #[cfg(target_os = "windows")]
@@ -157,6 +188,8 @@ async fn spawn_mcp(
     let mut child = cmd_builder
         .spawn()
         .map_err(|e| format!("无法启动 MCP 进程 {}: {}", command, e))?;
+
+    eprintln!("[MCP spawn] 进程已启动，PID: {:?}", child.id());
 
     let stdin = child.stdin.take().ok_or("无法获取 stdin")?;
     let stdout = child.stdout.take().ok_or("无法获取 stdout")?;
@@ -189,31 +222,57 @@ async fn read_response_from_reader(
     timeout_secs: u64,
 ) -> Result<Value, String> {
     line_buf.clear();
+    eprintln!("[MCP read] 开始读取响应，超时: {}秒", timeout_secs);
+    
     let result = tokio::time::timeout(
         std::time::Duration::from_secs(timeout_secs),
         async {
             let mut lines = reader.lines();
+            let mut line_count = 0;
             loop {
+                line_count += 1;
+                eprintln!("[MCP read] 等待第 {} 行...", line_count);
+                
                 match lines.next_line().await {
                     Ok(Some(line)) => {
+                        eprintln!("[MCP read] 收到行 {}: {}", line_count, &line[..line.len().min(100)]);
                         line_buf.push_str(&line);
+                        
+                        // 尝试解析 JSON
                         if let Ok(val) = serde_json::from_str::<Value>(line_buf) {
+                            eprintln!("[MCP read] JSON 解析成功");
                             return Ok(val);
                         }
+                        
                         if line_buf.lines().count() > 50 {
                             return Err(format!("响应行数过多: {}...", &line_buf[..200.min(line_buf.len())]));
                         }
                     }
-                    Ok(None) => return Err("MCP 服务器未返回响应".into()),
-                    Err(e) => return Err(format!("读取失败: {}", e)),
+                    Ok(None) => {
+                        eprintln!("[MCP read] stdout 已关闭，累积内容: {}", line_buf);
+                        return Err("MCP 服务器未返回响应（stdout 已关闭）".into());
+                    }
+                    Err(e) => {
+                        eprintln!("[MCP read] 读取错误: {}", e);
+                        return Err(format!("读取失败: {}", e));
+                    }
                 }
             }
         },
     ).await;
 
     match result {
-        Ok(Ok(val)) => Ok(val),
-        Ok(Err(e)) => Err(e),
-        Err(_) => Err(format!("MCP 请求超时 ({}秒)", timeout_secs)),
+        Ok(Ok(val)) => {
+            eprintln!("[MCP read] 响应读取成功");
+            Ok(val)
+        }
+        Ok(Err(e)) => {
+            eprintln!("[MCP read] 响应读取失败: {}", e);
+            Err(e)
+        }
+        Err(_) => {
+            eprintln!("[MCP read] 响应读取超时");
+            Err(format!("MCP 请求超时 ({}秒)", timeout_secs))
+        }
     }
 }

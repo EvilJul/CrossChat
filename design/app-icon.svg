@@ -1,0 +1,92 @@
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- 背景渐变 -->
+  <defs>
+    <linearGradient id="bgGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#8B5CF6;stop-opacity:1" />
+      <stop offset="50%" style="stop-color:#6366F1;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#3B82F6;stop-opacity:1" />
+    </linearGradient>
+    
+    <linearGradient id="chatGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#FFFFFF;stop-opacity:0.95" />
+      <stop offset="100%" style="stop-color:#E0E7FF;stop-opacity:0.9" />
+    </linearGradient>
+    
+    <linearGradient id="sparkleGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#FCD34D;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#F59E0B;stop-opacity:1" />
+    </linearGradient>
+    
+    <!-- 阴影滤镜 -->
+    <filter id="shadow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="8"/>
+      <feOffset dx="0" dy="4" result="offsetblur"/>
+      <feComponentTransfer>
+        <feFuncA type="linear" slope="0.3"/>
+      </feComponentTransfer>
+      <feMerge>
+        <feMergeNode/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    
+    <!-- 内阴影效果 -->
+    <filter id="innerShadow">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="3" result="blur"/>
+      <feOffset in="blur" dx="0" dy="2" result="offsetBlur"/>
+      <feFlood flood-color="#000000" flood-opacity="0.15" result="color"/>
+      <feComposite in="color" in2="offsetBlur" operator="in" result="shadow"/>
+      <feComposite in="shadow" in2="SourceAlpha" operator="in" result="innerShadow"/>
+      <feMerge>
+        <feMergeNode in="SourceGraphic"/>
+        <feMergeNode in="innerShadow"/>
+      </feMerge>
+    </filter>
+  </defs>
+  
+  <!-- 圆角矩形背景 -->
+  <rect width="512" height="512" rx="115" fill="url(#bgGradient)"/>
+  
+  <!-- 装饰性光晕 -->
+  <circle cx="128" cy="128" r="120" fill="#FFFFFF" opacity="0.1"/>
+  <circle cx="384" cy="384" r="100" fill="#FFFFFF" opacity="0.08"/>
+  
+  <!-- 主要聊天气泡组 -->
+  <g filter="url(#shadow)">
+    <!-- 左侧气泡（用户） -->
+    <path d="M 140 200 Q 140 180 160 180 L 260 180 Q 280 180 280 200 L 280 250 Q 280 270 260 270 L 170 270 L 150 290 L 150 270 Q 140 270 140 250 Z" 
+          fill="url(#chatGradient)" 
+          opacity="0.9"/>
+    
+    <!-- 右侧气泡（AI） -->
+    <path d="M 232 300 Q 232 280 252 280 L 372 280 Q 392 280 392 300 L 392 360 Q 392 380 372 380 L 262 380 L 242 400 L 242 380 Q 232 380 232 360 Z" 
+          fill="url(#chatGradient)"/>
+  </g>
+  
+  <!-- AI Sparkle 图标 -->
+  <g transform="translate(256, 256)" filter="url(#shadow)">
+    <!-- 中心圆 -->
+    <circle cx="0" cy="0" r="45" fill="url(#sparkleGradient)"/>
+    
+    <!-- 四个主要光芒 -->
+    <path d="M 0 -70 L 8 -50 L 0 -45 L -8 -50 Z" fill="url(#sparkleGradient)"/>
+    <path d="M 70 0 L 50 8 L 45 0 L 50 -8 Z" fill="url(#sparkleGradient)"/>
+    <path d="M 0 70 L 8 50 L 0 45 L -8 50 Z" fill="url(#sparkleGradient)"/>
+    <path d="M -70 0 L -50 8 L -45 0 L -50 -8 Z" fill="url(#sparkleGradient)"/>
+    
+    <!-- 四个次要光芒 -->
+    <path d="M 50 -50 L 54 -42 L 50 -38 L 46 -42 Z" fill="url(#sparkleGradient)" opacity="0.8"/>
+    <path d="M 50 50 L 54 42 L 50 38 L 46 42 Z" fill="url(#sparkleGradient)" opacity="0.8"/>
+    <path d="M -50 50 L -46 42 L -50 38 L -54 42 Z" fill="url(#sparkleGradient)" opacity="0.8"/>
+    <path d="M -50 -50 L -46 -42 L -50 -38 L -54 -42 Z" fill="url(#sparkleGradient)" opacity="0.8"/>
+    
+    <!-- 内部高光 -->
+    <circle cx="-8" cy="-8" r="15" fill="#FFFFFF" opacity="0.4"/>
+  </g>
+  
+  <!-- 装饰性小点 -->
+  <circle cx="350" cy="160" r="6" fill="#FFFFFF" opacity="0.6"/>
+  <circle cx="380" cy="180" r="4" fill="#FFFFFF" opacity="0.5"/>
+  <circle cx="160" cy="350" r="5" fill="#FFFFFF" opacity="0.5"/>
+  <circle cx="130" cy="370" r="3" fill="#FFFFFF" opacity="0.4"/>
+</svg>

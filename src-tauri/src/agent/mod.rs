@@ -537,28 +537,71 @@ impl Agent {
 async fn execute_mcp_tool(tc: &crate::providers::types::ToolCall) -> tools::ToolResult {
     let mcp = global_mcp();
     let servers = mcp.list_servers().await;
+    
+    let mut errors = Vec::new();
+    let mut enabled_count = 0;
 
     for server in &servers {
         if !server.enabled {
             continue;
         }
-        match mcp
-            .execute_mcp_tool(&server.id, &tc.name, &tc.arguments)
-            .await
-        {
+        
+        enabled_count += 1;
+        
+        match mcp.execute_mcp_tool(&server.id, &tc.name, &tc.arguments).await {
             Ok(content) => {
+                eprintln!("[MCP] 工具 {} 在服务器 '{}' 上执行成功", tc.name, server.name);
                 return tools::ToolResult {
                     success: true,
                     content,
                 };
             }
-            Err(_) => continue,
+            Err(e) => {
+                eprintln!("[MCP] 工具 {} 在服务器 '{}' 上执行失败: {}", tc.name, server.name, e);
+                errors.push(format!("• 服务器 '{}' ({}): {}", server.name, server.command, e));
+            }
         }
     }
 
+    // 构建详细的错误信息
+    let error_msg = if enabled_count == 0 {
+        format!(
+            "❌ MCP 工具 {} 执行失败\n\n\
+             原因：没有启用的 MCP 服务器\n\n\
+             💡 解决方法：\n\
+             1. 在设置中添加并启用 MCP 服务器\n\
+             2. 确保服务器配置正确\n\
+             3. 检查命令和参数是否正确",
+            tc.name
+        )
+    } else if errors.is_empty() {
+        format!(
+            "❌ MCP 工具 {} 执行失败\n\n\
+             原因：未知错误（没有启用的服务器返回结果）",
+            tc.name
+        )
+    } else {
+        format!(
+            "❌ MCP 工具 {} 执行失败\n\n\
+             尝试了 {} 个服务器，全部失败：\n\n{}\n\n\
+             💡 可能的原因：\n\
+             1. 工具名称不匹配（工具可能不存在于这些服务器中）\n\
+             2. 服务器启动失败或超时\n\
+             3. 参数格式错误\n\
+             4. 网络连接问题\n\n\
+             🔧 建议：\n\
+             1. 检查工具名称是否正确\n\
+             2. 在设置中测试 MCP 服务器连接\n\
+             3. 查看服务器日志了解详细错误",
+            tc.name,
+            enabled_count,
+            errors.join("\n")
+        )
+    };
+
     tools::ToolResult {
         success: false,
-        content: format!("MCP 工具 {} 执行失败：未找到可用的 MCP 服务器", tc.name),
+        content: error_msg,
     }
 }
 

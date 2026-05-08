@@ -128,19 +128,19 @@ export default function ChatInput({ onSend, onCommandResult, onStop, isGeneratin
 
   return (
     <div
-      className="border-t border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-4"
+      className="border-t border-zinc-200/50 dark:border-zinc-800/50 bg-white/80 dark:bg-zinc-950/80 backdrop-blur-xl p-6"
       onDrop={handleDrop}
       onDragOver={handleDragOver}
     >
       {commandMenu.length > 0 && (
-        <div className="max-w-3xl mx-auto mb-1 border border-zinc-200 dark:border-zinc-700 rounded-xl bg-white dark:bg-zinc-800 shadow-lg overflow-hidden">
+        <div className="max-w-3xl mx-auto mb-2 border border-zinc-200 dark:border-zinc-700 rounded-2xl bg-white dark:bg-zinc-800 shadow-xl overflow-hidden">
           {commandMenu.map((cmd, i) => (
             <button key={cmd.name}
               onClick={() => { setInput("/" + cmd.name + " "); setCommandMenu([]); textareaRef.current?.focus(); }}
-              className={cn("w-full text-left px-4 py-2.5 flex items-center gap-3 transition-colors duration-100",
-                i === selectedIndex ? "bg-slate-100 dark:bg-slate-800" : "hover:bg-zinc-50 dark:hover:bg-zinc-800/50")}
+              className={cn("w-full text-left px-4 py-3 flex items-center gap-3 transition-all duration-150",
+                i === selectedIndex ? "bg-purple-50 dark:bg-purple-900/20" : "hover:bg-zinc-50 dark:hover:bg-zinc-800/50")}
             >
-              <span className="text-sm font-mono font-medium text-slate-600 dark:text-slate-400 w-24 flex-shrink-0">/{cmd.name}</span>
+              <span className="text-sm font-mono font-medium text-purple-600 dark:text-purple-400 w-24 flex-shrink-0">/{cmd.name}</span>
               <span className="text-xs text-zinc-500 dark:text-zinc-400">{cmd.description}</span>
             </button>
           ))}
@@ -149,69 +149,82 @@ export default function ChatInput({ onSend, onCommandResult, onStop, isGeneratin
 
       {/* 附件预览 */}
       {attachments.length > 0 && (
-        <div className="max-w-3xl mx-auto mb-2 flex flex-wrap gap-2">
+        <div className="max-w-3xl mx-auto mb-3 flex flex-wrap gap-2">
           {attachments.map((att, i) => (
-            <div key={i} className="relative group w-16 h-16 rounded-lg overflow-hidden border border-zinc-200 dark:border-zinc-700 bg-zinc-100 dark:bg-zinc-800">
+            <div key={i} className="relative group w-20 h-20 rounded-xl overflow-hidden border border-zinc-200 dark:border-zinc-700 bg-zinc-100 dark:bg-zinc-800 shadow-md">
               {att.mimeType.startsWith("image/") ? (
                 <img src={att.dataUrl} alt={att.name} className="w-full h-full object-cover" />
               ) : (
                 <div className="w-full h-full flex items-center justify-center">
-                  <Image className="w-5 h-5 text-zinc-400" />
+                  <Image className="w-6 h-6 text-zinc-400" />
                 </div>
               )}
               <button onClick={() => removeAttachment(i)}
-                className="absolute top-0.5 right-0.5 p-0.5 rounded-full bg-black/50 text-white opacity-0 group-hover:opacity-100 transition-opacity">
-                <X className="w-2.5 h-2.5" />
+                className="absolute top-1 right-1 p-1 rounded-full bg-black/60 text-white opacity-0 group-hover:opacity-100 transition-opacity hover:bg-black/80">
+                <X className="w-3 h-3" />
               </button>
-              <span className="absolute bottom-0 left-0 right-0 text-[8px] text-white bg-black/50 px-1 truncate">{att.name}</span>
+              <span className="absolute bottom-0 left-0 right-0 text-[9px] text-white bg-black/60 px-1 py-0.5 truncate">{att.name}</span>
             </div>
           ))}
         </div>
       )}
 
-      <div className="max-w-3xl mx-auto flex items-end gap-2">
-        {/* 文件上传按钮 */}
-        <input type="file" ref={fileInputRef} onChange={handleFileSelect} multiple className="hidden" accept="image/*,.pdf,.txt,.csv,.xlsx,.docx,.pptx" />
-        <button onClick={() => fileInputRef.current?.click()}
-          className="flex-shrink-0 p-2 rounded-lg text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 mb-0.5"
-          title="上传文件/图片">
-          <Paperclip className="w-4 h-4" />
-        </button>
+      {/* 输入区域 - 浮动卡片设计 */}
+      <div className="max-w-3xl mx-auto">
+        <div className="rounded-2xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 shadow-xl overflow-hidden">
+          <div className="flex items-end gap-2 p-3">
+            {/* 文件上传按钮 */}
+            <input type="file" ref={fileInputRef} onChange={handleFileSelect} multiple className="hidden" accept="image/*,.pdf,.txt,.csv,.xlsx,.docx,.pptx" />
+            <button onClick={() => fileInputRef.current?.click()}
+              className="flex-shrink-0 p-2 rounded-xl text-zinc-400 hover:text-purple-600 dark:hover:text-purple-400 hover:bg-purple-50 dark:hover:bg-purple-900/20 transition-all duration-200"
+              title="上传文件/图片">
+              <Paperclip className="w-5 h-5" />
+            </button>
 
-        {expanded && (
-          <button onClick={() => setExpanded(false)}
-            className="flex-shrink-0 p-1.5 rounded-lg text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 mb-1" title="收起">
-            <Minimize2 className="w-3.5 h-3.5" />
-          </button>
-        )}
-        <textarea ref={textareaRef} value={input}
-          onChange={(e) => setInput(e.target.value)} onKeyDown={handleKeyDown} onPaste={handlePaste}
-          placeholder="输入消息 / 斜杠命令... (Ctrl+V 粘贴图片) (Enter 发送, Shift+Enter 换行)"
-          rows={expanded ? 15 : 1} disabled={disabled}
-          className={cn(
-            "flex-1 resize-none rounded-2xl border border-zinc-200 dark:border-zinc-700",
-            "bg-zinc-50 dark:bg-zinc-800/50 px-4 py-3 text-sm",
-            "text-zinc-800 dark:text-zinc-200",
-            "placeholder:text-zinc-400 dark:placeholder:text-zinc-500",
-            "focus:outline-none focus:ring-1 focus:ring-slate-400 dark:focus:ring-slate-500 focus:border-slate-300 dark:focus:border-slate-600",
-            "disabled:opacity-50 disabled:cursor-not-allowed",
-            "overflow-hidden transition-all duration-200"
-          )}
-          style={{ minHeight: "44px" }} />
-        {input.length > 200 && !expanded && (
-          <button onClick={() => setExpanded(true)}
-            className="flex-shrink-0 p-1.5 rounded-lg text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 mb-1" title="展开">
-            <Maximize2 className="w-3.5 h-3.5" />
-          </button>
-        )}
+            {expanded && (
+              <button onClick={() => setExpanded(false)}
+                className="flex-shrink-0 p-2 rounded-xl text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-all duration-200" 
+                title="收起">
+                <Minimize2 className="w-4 h-4" />
+              </button>
+            )}
+            
+            <textarea ref={textareaRef} value={input}
+              onChange={(e) => setInput(e.target.value)} onKeyDown={handleKeyDown} onPaste={handlePaste}
+              placeholder="输入消息 / 斜杠命令... (Ctrl+V 粘贴图片) (Enter 发送, Shift+Enter 换行)"
+              rows={expanded ? 15 : 1} disabled={disabled}
+              className={cn(
+                "flex-1 resize-none bg-transparent px-2 py-2 text-base",
+                "text-zinc-800 dark:text-zinc-200",
+                "placeholder:text-zinc-400 dark:placeholder:text-zinc-500",
+                "focus:outline-none",
+                "disabled:opacity-50 disabled:cursor-not-allowed",
+                "overflow-hidden transition-all duration-200"
+              )}
+              style={{ minHeight: "40px" }} />
+            
+            {input.length > 200 && !expanded && (
+              <button onClick={() => setExpanded(true)}
+                className="flex-shrink-0 p-2 rounded-xl text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-all duration-200" 
+                title="展开">
+                <Maximize2 className="w-4 h-4" />
+              </button>
+            )}
 
-        <button onClick={isGenerating ? onStop : handleSubmit}
-          disabled={!isGenerating && (!input.trim() && attachments.length === 0) || disabled}
-          className={cn("flex-shrink-0 w-10 h-10 rounded-xl flex items-center justify-center transition-all duration-200",
-            isGenerating ? "bg-red-500 hover:bg-red-600 text-white" : "bg-slate-600 hover:bg-slate-700 text-white",
-            "disabled:opacity-40 disabled:cursor-not-allowed")}>
-          {isGenerating ? <Square className="w-4 h-4 fill-current" /> : <Send className="w-4 h-4" />}
-        </button>
+            {/* 发送按钮 - 渐变设计 */}
+            <button onClick={isGenerating ? onStop : handleSubmit}
+              disabled={!isGenerating && (!input.trim() && attachments.length === 0) || disabled}
+              className={cn(
+                "flex-shrink-0 w-10 h-10 rounded-xl flex items-center justify-center transition-all duration-200 shadow-lg",
+                isGenerating 
+                  ? "bg-red-500 hover:bg-red-600 text-white shadow-red-500/30" 
+                  : "bg-gradient-to-br from-purple-500 to-blue-500 hover:from-purple-600 hover:to-blue-600 text-white shadow-purple-500/30 hover:shadow-purple-500/50 hover:scale-105 active:scale-95",
+                "disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100"
+              )}>
+              {isGenerating ? <Square className="w-4 h-4 fill-current" /> : <Send className="w-4 h-4" />}
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );

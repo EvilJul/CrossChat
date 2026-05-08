@@ -5,7 +5,6 @@ import remarkGfm from "remark-gfm";
 import { type ChatMessage, type ToolCallState } from "../../stores/chatStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { cn } from "../../lib/cn";
-import { Avatar } from "../../shared/ui";
 import StreamingText from "./StreamingText";
 import ThinkingBubble from "./ThinkingBubble";
 import ToolCallBadge from "./ToolCallBadge";
@@ -121,18 +120,15 @@ export default function MessageBubble({ message }: Props) {
 
   return (
     <motion.div
-      initial={{ opacity: 0, y: 6 }}
+      initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ type: "spring", stiffness: 400, damping: 28 }}
       className={cn(
-        "flex gap-2.5 px-4 py-2.5 group",
+        "flex px-6 py-3 group",
         isUser ? "justify-end" : "justify-start"
       )}
     >
-      {!isUser && <Avatar role={isTool ? "tool" : "assistant"} />}
-      {isUser && <Avatar role="user" />}
-
-      <div className={cn("max-w-[72%]", isUser ? "order-first" : "")}>
+      <div className={cn("max-w-[70%] relative")}>
         {!isUser && showThinking !== false && hasThinking && (
           <ThinkingBubble
             content={message.thinking || ""}
@@ -143,20 +139,20 @@ export default function MessageBubble({ message }: Props) {
 
         <div
           className={cn(
-            "rounded-2xl px-4 py-2.5 text-sm leading-relaxed break-words overflow-hidden",
+            "rounded-2xl px-5 py-3 text-sm leading-relaxed break-words overflow-hidden transition-all duration-200 relative",
             isUser
-              ? "bg-slate-600 dark:bg-slate-500 text-white rounded-br-lg"
-              : "bg-zinc-100 dark:bg-zinc-800 text-zinc-800 dark:text-zinc-200 rounded-bl-lg border border-zinc-200/60 dark:border-zinc-700/60"
+              ? "bg-gradient-to-br from-purple-500 to-blue-500 text-white shadow-lg shadow-purple-500/20 rounded-br-sm hover:shadow-xl hover:shadow-purple-500/30 message-bubble-user"
+              : "bg-white dark:bg-zinc-900 text-zinc-800 dark:text-zinc-200 rounded-bl-sm border border-zinc-200/60 dark:border-zinc-800/60 shadow-md hover:shadow-lg message-bubble-assistant"
           )}
         >
           {isUser ? (
             <div>
               {message.attachments && message.attachments.length > 0 && (
-                <div className="flex flex-wrap gap-1.5 mb-2">
+                <div className="flex flex-wrap gap-2 mb-2">
                   {message.attachments.map((att, i) => (
                     att.mimeType.startsWith("image/") ? (
                       <img key={i} src={att.dataUrl} alt={att.name}
-                        className="max-w-[200px] max-h-[200px] rounded-lg object-cover border border-white/20" />
+                        className="max-w-[200px] max-h-[200px] rounded-xl object-cover border border-white/20 shadow-md" />
                     ) : (
                       <div key={i} className="text-xs bg-white/20 rounded-lg px-2 py-1 truncate max-w-[200px]">
                         📎 {att.name}
@@ -188,9 +184,9 @@ export default function MessageBubble({ message }: Props) {
       {!isUser && message.content && !message.isStreaming && !isTool && (
         <button
           onClick={handleCopy}
-          className="flex-shrink-0 self-start mt-1.5 opacity-0 group-hover:opacity-100 transition-opacity duration-150 text-zinc-300 hover:text-zinc-500 dark:text-zinc-600 dark:hover:text-zinc-300"
+          className="flex-shrink-0 self-start mt-2 opacity-0 group-hover:opacity-100 transition-all duration-200 text-zinc-300 hover:text-zinc-500 dark:text-zinc-600 dark:hover:text-zinc-300 hover:scale-110"
         >
-          {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+          {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
         </button>
       )}
     </motion.div>

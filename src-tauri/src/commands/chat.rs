@@ -312,6 +312,12 @@ pub async fn run_agent_loop<T: StreamSender + Clone>(
     ).await {
         Ok(tools) => {
             eprintln!("[agent_loop] MCP 工具加载完成: {} 个", tools.len());
+            if !tools.is_empty() {
+                eprintln!("[agent_loop] MCP 工具列表:");
+                for tool in &tools {
+                    eprintln!("  - {} : {}", tool.name, tool.description);
+                }
+            }
             tools
         }
         Err(_) => {

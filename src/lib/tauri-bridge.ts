@@ -115,6 +115,42 @@ export async function refreshMcpTools(): Promise<number> {
   return (await invoke("refresh_mcp_tools")) as number;
 }
 
+// === MCP 验证 ===
+export interface ValidationDetails {
+  command_exists: boolean;
+  command_version: string | null;
+  tools_discovered: string[] | null;
+  response_time_ms: number;
+}
+
+export interface ValidationResult {
+  success: boolean;
+  message: string;
+  details: ValidationDetails | null;
+}
+
+/**
+ * 快速验证 MCP 命令是否可用
+ * @param command 命令名称（如: uvx, npx, node）
+ * @returns 命令版本信息
+ */
+export async function validateMcpCommand(command: string): Promise<string> {
+  return await invoke<string>("validate_mcp_command", { command });
+}
+
+/**
+ * 完整测试 MCP 服务器连接
+ * @param command 命令名称
+ * @param args 命令参数
+ * @returns 验证结果（包含发现的工具列表）
+ */
+export async function testMcpServer(
+  command: string,
+  args: string[]
+): Promise<ValidationResult> {
+  return await invoke<ValidationResult>("test_mcp_server", { command, args });
+}
+
 // === AGENT.md 约束文件 ===
 export interface AgentConfig {
   found: boolean;
@@ -194,6 +230,7 @@ export async function removeSkill(name: string): Promise<void> {
 }
 
 // 精选 MCP 插件市场
+// 注意：仅包含已验证存在的 npm 包
 export const MCP_MARKETPLACE: Array<{
   name: string;
   description: string;
@@ -219,12 +256,6 @@ export const MCP_MARKETPLACE: Array<{
     args: ["-y", "@modelcontextprotocol/server-postgres"],
   },
   {
-    name: "Brave Search",
-    description: "通过 Brave API 进行网页搜索",
-    command: "npx",
-    args: ["-y", "@modelcontextprotocol/server-brave-search"],
-  },
-  {
     name: "Puppeteer",
     description: "浏览器自动化（截图、爬取）",
     command: "npx",
@@ -246,7 +277,7 @@ export const MCP_MARKETPLACE: Array<{
     name: "Fetch",
     description: "获取网页内容并转为 Markdown",
     command: "npx",
-    args: ["-y", "@modelcontextprotocol/server-fetch"],
+    args: ["-y", "mcp-server-fetch-typescript"],
   },
 ];
 

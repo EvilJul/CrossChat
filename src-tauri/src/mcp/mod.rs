@@ -1,5 +1,6 @@
 pub mod health;
 pub mod server;
+pub mod validator;
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -149,30 +150,41 @@ impl McpManager {
         let configs = self.configs.lock().await.clone();
         let mut all_tools = Vec::new();
 
+        eprintln!("[MCP] 开始加载工具，已配置服务器数: {}", configs.len());
+
         for (id, cfg) in configs.iter() {
+            eprintln!("[MCP] 检查服务器: {} (enabled={})", cfg.name, cfg.enabled);
+            
             if !cfg.enabled {
+                eprintln!("[MCP] 跳过已禁用的服务器: {}", cfg.name);
                 continue;
             }
 
             // 检查缓存
             let has_cache = self.tools_cache.lock().await.contains_key(id);
+            eprintln!("[MCP] 服务器 {} 缓存状态: {}", cfg.name, if has_cache { "有缓存" } else { "无缓存" });
+            
             if !has_cache {
+                eprintln!("[MCP] 开始发现工具: {} (command={}, args={:?})", cfg.name, cfg.command, cfg.args);
                 match server::discover_tools(cfg.command.clone(), cfg.args.clone()).await {
                     Ok(tools) => {
+                        eprintln!("[MCP] {} 工具发现成功: {} 个工具", cfg.name, tools.len());
                         self.tools_cache.lock().await.insert(id.clone(), tools);
                         self.save_cache().await;
                     }
                     Err(e) => {
-                        eprintln!("MCP {} 工具发现失败: {}", cfg.name, e);
+                        eprintln!("[MCP] {} 工具发现失败: {}", cfg.name, e);
                     }
                 }
             }
 
             if let Some(tools) = self.tools_cache.lock().await.get(id) {
+                eprintln!("[MCP] 从缓存加载 {} 的 {} 个工具", cfg.name, tools.len());
                 all_tools.extend(tools.clone());
             }
         }
 
+        eprintln!("[MCP] 工具加载完成，总计: {} 个", all_tools.len());
         all_tools
     }
 
