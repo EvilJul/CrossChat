@@ -58,7 +58,7 @@ pub fn get_python_executable() -> PathBuf {
 
     #[cfg(not(target_os = "windows"))]
     {
-        python_dir.join("python3")
+        python_dir.join("bin").join("python3")
     }
 }
 
