@@ -49,6 +49,10 @@ jobs:
 
       - name: Verify Python environment
         run: |
+          if [ ! -f "./src-tauri/resources/python/python.exe" ]; then
+            echo "ERROR: Python executable not found!"
+            exit 1
+          fi
           ./src-tauri/resources/python/python.exe --version
           ./src-tauri/resources/python/python.exe -m pip --version
         shell: bash
@@ -59,6 +63,14 @@ jobs:
           python/python.exe install_office_deps.py
         shell: bash
 
+      - name: Check Python directory size before build
+        run: |
+          echo "=== Python Environment Size ==="
+          du -sh src-tauri/resources/python
+          echo "=== Python Directory Contents ==="
+          ls -lah src-tauri/resources/python | head -20
+        shell: bash
+
       - name: Build Tauri app
         run: npm run tauri build
 
@@ -67,6 +79,8 @@ jobs:
           echo "=== Windows Build Artifacts Size ==="
           du -sh src-tauri/target/release/bundle/msi/*.msi || echo "No MSI files"
           du -sh src-tauri/target/release/bundle/nsis/*.exe || echo "No NSIS files"
+          echo "=== Checking if Python is bundled ==="
+          7z l src-tauri/target/release/bundle/nsis/*.exe | grep -i python || echo "Python not found in bundle!"
         shell: bash
 
       - name: Upload Windows installer
@@ -124,6 +138,10 @@ jobs:
 
       - name: Verify Python environment
         run: |
+          if [ ! -f "./src-tauri/resources/python/bin/python3" ]; then
+            echo "ERROR: Python executable not found!"
+            exit 1
+          fi
           ./src-tauri/resources/python/bin/python3 --version
           ./src-tauri/resources/python/bin/python3 -m pip --version
 
@@ -131,6 +149,13 @@ jobs:
         run: |
           cd src-tauri/resources
           python/bin/python3 install_office_deps.py
+
+      - name: Check Python directory size before build
+        run: |
+          echo "=== Python Environment Size ==="
+          du -sh src-tauri/resources/python
+          echo "=== Python Directory Contents ==="
+          ls -lah src-tauri/resources/python | head -20
 
       - name: Build Tauri app
         run: npm run tauri build -- --bundles deb,rpm
@@ -141,6 +166,8 @@ jobs:
           echo "=== Linux Build Artifacts Size ==="
           du -sh src-tauri/target/release/bundle/deb/*.deb || echo "No DEB files"
           du -sh src-tauri/target/release/bundle/rpm/*.rpm || echo "No RPM files"
+          echo "=== Checking if Python is bundled in DEB ==="
+          dpkg -c src-tauri/target/release/bundle/deb/*.deb | grep -i python | head -10 || echo "Python not found in bundle!"
 
       - name: Upload Linux deb
         uses: actions/upload-artifact@v4
