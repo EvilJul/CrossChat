@@ -51,6 +51,17 @@ pub async fn send_chat_message(
 
     let turns = store.list_turns(&session_id, 100).await.unwrap_or_default();
 
+    // 收集本次用户消息之前的完整历史 items（单 Turn 累积方案）。
+    // list_turns 按随机 UUID 排序，顺序不可靠，这里显式按 started_at 升序排序后再展平，
+    // 保证历史顺序正确。理论上历史只会有一个 Turn（本方案始终重写单 Turn），
+    // 但为兼容多 Turn 的旧数据仍做排序展平。
+    let mut sorted_turns = turns.clone();
+    sorted_turns.sort_by_key(|t| t.started_at);
+    let history_items: Vec<TurnItem> = sorted_turns
+        .iter()
+        .flat_map(|t| t.items.clone())
+        .collect();
+
     let mut messages: Vec<serde_json::Value> = Vec::new();
     for turn in &turns {
         for item in &turn.items {
@@ -102,9 +113,12 @@ pub async fn send_chat_message(
 
     let reasoning = msg["reasoning_content"].as_str().map(|s| s.to_string());
 
+    // 单 Turn 累积方案：始终把「历史 + 本轮」重写进唯一一个 Turn。
+    // items 在 Turn 的 JSON 数组里天然有序，彻底避开 list_turns 的随机 UUID 排序问题。
     let _ = store.delete_turns_for_thread(&session_id).await;
 
-    let mut items = Vec::new();
+    // 历史（有序）+ 本次用户消息 + 可选推理 + 本次 AI 回复
+    let mut items = history_items;
 
     items.push(TurnItem::UserMessage {
         text: user_text.clone(),
