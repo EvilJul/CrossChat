@@ -1,13 +1,16 @@
 import { useState, useMemo, useRef, useEffect } from "react";
-import { Plus, Trash2, Check, Eye, EyeOff, Wifi, RefreshCw, Loader2, Search, AlertCircle, Sparkles } from "lucide-react";
+import { Plus, Check, Trash2, Eye, EyeOff, Loader2, AlertCircle, Search } from "lucide-react";
+import { cn } from "../../lib/cn";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { useProviderStore } from "../../stores/providerStore";
-import { PRESET_PROVIDERS } from "../../lib/providers";
 import { fetchModels } from "../../lib/tauri-bridge";
-import { Button, Input, Select } from "../../shared/ui";
-import { cn } from "../../lib/cn";
 
-/// 可搜索的模型选择组件
+const PRESET_PROVIDERS = [
+  { name: "OpenAI", apiBase: "https://api.openai.com/v1", models: ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "o1-mini"], providerType: "openai-compat" as const },
+  { name: "Anthropic", apiBase: "https://api.anthropic.com/v1", models: ["claude-sonnet-4-20250514", "claude-haiku-3-5-sonnet-20241022"], providerType: "anthropic" as const },
+  { name: "DeepSeek", apiBase: "https://api.deepseek.com/v1", models: ["deepseek-chat", "deepseek-reasoner"], providerType: "openai-compat" as const },
+];
+
 function SearchableModelSelect({
   models, activeModel, onSelect
 }: {
@@ -57,27 +60,27 @@ function SearchableModelSelect({
   return (
     <div ref={containerRef} className="relative">
       <div className="relative">
-        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3 h-3 text-zinc-400 flex-shrink-0" />
+        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3 h-3 text-ds-muted" />
         <input
           value={query}
           onChange={(e) => { setQuery(e.target.value); setOpen(true); setHighlight(0); }}
           onFocus={() => setOpen(true)}
           onKeyDown={handleKey}
           placeholder="搜索或输入模型名..."
-          className="w-full text-xs rounded-xl border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-800 pl-7 pr-3 py-1.5 text-zinc-700 dark:text-zinc-300 focus:outline-none focus:ring-1 focus:ring-purple-400 truncate"
+          className="w-full text-xs rounded-lg border border-ds-border bg-ds-surface-elevated pl-7 pr-3 py-1.5 text-ds-text-primary placeholder:text-ds-muted focus:outline-none focus:ring-1 focus:ring-ds-accent/40 focus:border-ds-accent transition-colors"
         />
       </div>
       {open && filtered.length > 0 && (
-        <div className="absolute z-50 mt-1 w-full max-h-40 overflow-y-auto overflow-x-hidden chat-scrollbar rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 shadow-lg">
+        <div className="absolute z-50 mt-1 w-full max-h-40 overflow-y-auto rounded-lg border border-ds-border bg-ds-surface-card shadow-lg backdrop-blur-xl">
           {filtered.map((model, i) => (
             <button
               key={model}
               onClick={() => selectModel(model)}
               className={cn(
-                "w-full text-left px-3 py-1.5 text-xs transition-colors truncate",
-                "hover:bg-zinc-100 dark:hover:bg-zinc-700",
-                i === highlight && "bg-purple-100 dark:bg-purple-900/30",
-                model === activeModel && "text-purple-700 dark:text-purple-300 font-medium"
+                "w-full text-left px-3 py-1.5 text-xs transition-colors",
+                "hover:bg-ds-hover",
+                i === highlight && "bg-ds-selected",
+                model === activeModel && "text-ds-accent font-medium"
               )}
               title={model}
             >
@@ -106,12 +109,8 @@ export default function ProviderTab() {
   const [showKey, setShowKey] = useState<Record<string, boolean>>({});
   const [testing, setTesting] = useState<Record<string, boolean>>({});
   const [testResults, setTestResults] = useState<Record<string, string | null>>({});
-  const [editingModels, setEditingModels] = useState<Record<string, string>>({});
-  const [customForm, setCustomForm] = useState<{ name: string; apiBase: string; providerType: "openai-compat" | "anthropic" }>({ 
-    name: "", 
-    apiBase: "https://api.openai.com/v1", 
-    providerType: "openai-compat" 
-  });
+  const [showCustom, setShowCustom] = useState(false);
+  const [customForm, setCustomForm] = useState<{ name: string; apiBase: string; providerType: "openai-compat" | "anthropic" }>({ name: "", apiBase: "https://api.openai.com/v1", providerType: "openai-compat" });
 
   const addPreset = (preset: (typeof PRESET_PROVIDERS)[number]) => {
     const id = preset.name.toLowerCase().replace(/\s+/g, "-");
@@ -121,20 +120,12 @@ export default function ProviderTab() {
     setActiveModel(preset.models[0]);
   };
 
-  const addCustom = () => {
-    const name = customForm.name.trim();
-    if (!name) return;
-    const id = "custom-" + name.toLowerCase().replace(/\s+/g, "-") + "-" + Date.now();
-    addProvider({ id, name, apiBase: customForm.apiBase, models: [], providerType: customForm.providerType });
-    setCustomForm({ name: "", apiBase: "https://api.openai.com/v1", providerType: "openai-compat" });
-  };
-
   const handleTest = async (providerId: string) => {
     const provider = providers.find((p) => p.id === providerId);
     const cred = credentials[providerId];
-    if (!provider || !cred?.apiKey) { 
-      setTestResults((s) => ({ ...s, [providerId]: "请先输入 API Key" })); 
-      return; 
+    if (!provider || !cred?.apiKey) {
+      setTestResults((s) => ({ ...s, [providerId]: "请先输入 API Key" }));
+      return;
     }
     setTesting((s) => ({ ...s, [providerId]: true }));
     setTestResults((s) => ({ ...s, [providerId]: null }));
@@ -143,268 +134,223 @@ export default function ProviderTab() {
       setTestResults((s) => ({ ...s, [providerId]: `✓ 连接成功，${models.length} 个模型` }));
       if (models.length > 0) {
         updateProvider(providerId, { models });
-        if (!activeModel || activeProviderId !== providerId) { 
-          setActiveProvider(providerId); 
-          setActiveModel(models[0]); 
+        if (!activeModel || activeProviderId !== providerId) {
+          setActiveProvider(providerId);
+          setActiveModel(models[0]);
         }
       }
-    } catch (e) { 
-      setTestResults((s) => ({ ...s, [providerId]: `✗ ${String(e).slice(0, 60)}...` })); 
+    } catch (e) {
+      setTestResults((s) => ({ ...s, [providerId]: `✗ ${String(e).slice(0, 80)}` }));
+    } finally {
+      setTesting((s) => ({ ...s, [providerId]: false }));
     }
-    finally { setTesting((s) => ({ ...s, [providerId]: false })); }
-  };
-
-  const saveModels = (providerId: string) => {
-    const s = editingModels[providerId] || "";
-    const models = s.split(",").map((m) => m.trim()).filter(Boolean);
-    updateProvider(providerId, { models });
-    setEditingModels((prev) => { const n = { ...prev }; delete n[providerId]; return n; });
   };
 
   return (
-    <div className="space-y-6 overflow-x-hidden">
-      {/* 预设供应商 */}
+    <div className="space-y-6">
       <div>
-        <h3 className="text-sm font-semibold bg-gradient-to-r from-purple-600 to-blue-600 bg-clip-text text-transparent mb-3 flex items-center gap-2">
-          <Sparkles className="w-4 h-4 text-purple-500" />
-          <span className="truncate">快速添加供应商</span>
-        </h3>
-        <div className="grid grid-cols-3 gap-2">
+        <h3 className="text-xs font-medium text-ds-muted uppercase tracking-wider mb-3">快速添加</h3>
+        <div className="flex flex-wrap gap-2">
           {PRESET_PROVIDERS.map((preset) => {
             const id = preset.name.toLowerCase().replace(/\s+/g, "-");
             const added = providers.some((p) => p.id === id);
             return (
-              <button 
-                key={id} 
-                onClick={() => !added && addPreset(preset)} 
+              <button
+                key={id}
+                onClick={() => !added && addPreset(preset)}
                 disabled={added}
                 className={cn(
-                  "flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium border transition-all duration-200 whitespace-nowrap",
-                  added 
-                    ? "border-green-300 dark:border-green-700 bg-gradient-to-r from-green-50 to-emerald-50 dark:from-green-900/20 dark:to-emerald-900/20 text-green-700 dark:text-green-300 cursor-default shadow-sm" 
-                    : "border-zinc-200/70 dark:border-zinc-700/70 hover:border-purple-300 dark:hover:border-purple-600 bg-white dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 hover:shadow-md hover:shadow-purple-500/10 hover:-translate-y-0.5"
+                  "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors",
+                  added
+                    ? "border-ds-success/30 bg-ds-success/10 text-ds-success"
+                    : "border-ds-border bg-ds-surface-elevated text-ds-text-primary hover:border-ds-accent/30 hover:bg-ds-hover"
                 )}
-                title={preset.name}
               >
-                {added ? <Check className="w-3 h-3 flex-shrink-0" /> : <Plus className="w-3 h-3 flex-shrink-0" />}
-                <span className="truncate">{preset.name}</span>
+                {added ? <Check className="w-3 h-3" /> : <Plus className="w-3 h-3" />}
+                {preset.name}
               </button>
             );
           })}
+          <button
+            onClick={() => setShowCustom(!showCustom)}
+            className={cn(
+              "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors",
+              showCustom
+                ? "border-ds-accent/40 bg-ds-accent/10 text-ds-accent"
+                : "border-ds-border bg-ds-surface-elevated text-ds-muted hover:border-ds-accent/30 hover:text-ds-text-primary"
+            )}
+          >
+            <Plus className="w-3 h-3" />
+            自定义
+          </button>
         </div>
       </div>
 
-      {/* 自定义供应商 */}
-      <div>
-        <h3 className="text-sm font-semibold bg-gradient-to-r from-purple-600 to-blue-600 bg-clip-text text-transparent mb-3 flex items-center gap-2">
-          <Plus className="w-4 h-4 text-purple-500" />
-          <span className="truncate">自定义供应商</span>
-        </h3>
-        <div className="grid grid-cols-12 gap-2">
-          <div className="col-span-3">
-            <Input 
-              label="名称" 
-              value={customForm.name} 
-              onChange={(e) => setCustomForm((f) => ({ ...f, name: e.target.value }))} 
-              placeholder="vLLM" 
-              className="truncate"
+      {showCustom && (
+        <div className="p-3 rounded-lg border border-ds-border bg-ds-surface-elevated space-y-2">
+          <div className="flex gap-2">
+            <input
+              value={customForm.name}
+              onChange={(e) => setCustomForm((f) => ({ ...f, name: e.target.value }))}
+              placeholder="名称"
+              className="flex-1 text-xs rounded-lg border border-ds-border bg-ds-bg-main px-2.5 py-1.5 text-ds-text-primary placeholder:text-ds-muted focus:outline-none focus:ring-1 focus:ring-ds-accent/40 focus:border-ds-accent transition-colors"
             />
-          </div>
-          <div className="col-span-5">
-            <Input 
-              label="API Base" 
-              value={customForm.apiBase} 
-              onChange={(e) => setCustomForm((f) => ({ ...f, apiBase: e.target.value }))} 
-              className="truncate font-mono text-xs"
+            <input
+              value={customForm.apiBase}
+              onChange={(e) => setCustomForm((f) => ({ ...f, apiBase: e.target.value }))}
+              placeholder="API Base URL"
+              className="flex-[2] text-xs rounded-lg border border-ds-border bg-ds-bg-main px-2.5 py-1.5 text-ds-text-primary placeholder:text-ds-muted focus:outline-none focus:ring-1 focus:ring-ds-accent/40 focus:border-ds-accent transition-colors font-mono"
             />
-          </div>
-          <div className="col-span-2">
-            <Select 
-              label="类型" 
+            <select
               value={customForm.providerType}
               onChange={(e) => setCustomForm((f) => ({ ...f, providerType: e.target.value as "openai-compat" | "anthropic" }))}
+              className="text-xs rounded-lg border border-ds-border bg-ds-bg-main px-2 py-1.5 text-ds-text-primary focus:outline-none focus:ring-1 focus:ring-ds-accent/40 focus:border-ds-accent"
             >
               <option value="openai-compat">OpenAI</option>
               <option value="anthropic">Anthropic</option>
-            </Select>
+            </select>
           </div>
-          <div className="col-span-2 flex items-end">
-            <Button 
-              onClick={addCustom} 
-              disabled={!customForm.name.trim()} 
-              size="sm" 
-              className="w-full whitespace-nowrap"
+          <div className="flex gap-2">
+            <button
+              onClick={() => {
+                const name = customForm.name.trim();
+                if (!name) return;
+                const id = "custom-" + name.toLowerCase().replace(/\s+/g, "-") + "-" + Date.now();
+                addProvider({ id, name, apiBase: customForm.apiBase, models: [], providerType: customForm.providerType });
+                setCustomForm({ name: "", apiBase: "https://api.openai.com/v1", providerType: "openai-compat" });
+                setShowCustom(false);
+              }}
+              disabled={!customForm.name.trim()}
+              className="px-3 py-1.5 rounded-lg text-xs font-medium bg-ds-accent text-white hover:opacity-90 disabled:opacity-40 transition-all"
             >
-              <Plus className="w-3 h-3" />
               添加
-            </Button>
-          </div>
-        </div>
-      </div>
-
-      {/* 已添加的供应商 */}
-      {providers.length > 0 && (
-        <div>
-          <h3 className="text-sm font-semibold bg-gradient-to-r from-purple-600 to-blue-600 bg-clip-text text-transparent mb-3 flex items-center gap-2">
-            <Wifi className="w-4 h-4 text-purple-500" />
-            <span className="truncate">已配置供应商 ({providers.length})</span>
-          </h3>
-          <div className="space-y-3">
-            {providers.map((provider) => {
-              const cred = credentials[provider.id];
-              const isActive = provider.id === activeProviderId;
-              const isTesting = testing[provider.id];
-              const testResult = testResults[provider.id];
-              return (
-                <div 
-                  key={provider.id} 
-                  className={cn(
-                    "p-4 rounded-xl border transition-all duration-200 overflow-hidden",
-                    isActive 
-                      ? "border-purple-300 dark:border-purple-700/50 bg-gradient-to-br from-purple-50/50 to-blue-50/50 dark:from-purple-950/20 dark:to-blue-950/20 shadow-md shadow-purple-500/10" 
-                      : "border-zinc-200/70 dark:border-zinc-700/70 hover:border-purple-200 dark:hover:border-purple-800/50"
-                  )}
-                >
-                  {/* 头部 */}
-                  <div className="flex items-center justify-between mb-3">
-                    <div className="flex items-center gap-2 min-w-0 flex-1">
-                      <span className="text-sm font-semibold text-zinc-800 dark:text-zinc-200 truncate">{provider.name}</span>
-                      <span className="text-[10px] text-zinc-400 bg-zinc-100 dark:bg-zinc-800 px-1.5 py-0.5 rounded whitespace-nowrap flex-shrink-0">
-                        {provider.providerType === "anthropic" ? "Anthropic" : "OpenAI"}
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-2 flex-shrink-0">
-                      {!isActive && (
-                        <button 
-                          onClick={() => { 
-                            setActiveProvider(provider.id); 
-                            if (provider.models[0]) setActiveModel(provider.models[0]); 
-                          }} 
-                          className="text-xs text-purple-600 dark:text-purple-400 hover:underline px-2 py-1 font-medium whitespace-nowrap"
-                        >
-                          使用
-                        </button>
-                      )}
-                      {isActive && (
-                        <span className="text-xs text-green-600 dark:text-green-400 font-medium flex items-center gap-1 whitespace-nowrap">
-                          <Check className="w-3 h-3" />使用中
-                        </span>
-                      )}
-                      <button 
-                        onClick={() => { removeProvider(provider.id); removeCredential(provider.id); }} 
-                        className="p-1.5 rounded text-zinc-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
-                        title="删除"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* API Base */}
-                  <Input 
-                    value={provider.apiBase} 
-                    onChange={(e) => updateProvider(provider.id, { apiBase: e.target.value })} 
-                    className="font-mono text-xs mb-3 truncate" 
-                    placeholder="API Base URL"
-                  />
-
-                  {/* API Key */}
-                  <div className="flex items-center gap-2 mb-3">
-                    <div className="relative flex-1 min-w-0">
-                      <input 
-                        type={showKey[provider.id] ? "text" : "password"} 
-                        value={cred?.apiKey || ""} 
-                        onChange={(e) => setCredential(provider.id, e.target.value)}
-                        className="w-full text-xs rounded-xl border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-800 pl-3 pr-8 py-2 text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 focus:outline-none focus:ring-1 focus:ring-purple-400 truncate" 
-                        placeholder="API Key" 
-                      />
-                      <button 
-                        onClick={() => setShowKey((s) => ({ ...s, [provider.id]: !s[provider.id] }))} 
-                        className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600"
-                      >
-                        {showKey[provider.id] ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
-                      </button>
-                    </div>
-                    <Button 
-                      variant="secondary" 
-                      size="sm" 
-                      onClick={() => handleTest(provider.id)} 
-                      disabled={isTesting || !cred?.apiKey}
-                      className="whitespace-nowrap flex-shrink-0"
-                    >
-                      {isTesting ? <Loader2 className="w-3 h-3 animate-spin" /> : <Wifi className="w-3 h-3" />}
-                      测试
-                    </Button>
-                  </div>
-
-                  {/* 测试结果 */}
-                  {testResult && (
-                    <div className={cn(
-                      "mb-3 text-xs px-3 py-2 rounded-lg flex items-start gap-2",
-                      testResult.startsWith("✓") 
-                        ? "bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-300" 
-                        : "bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300"
-                    )}>
-                      <AlertCircle className="w-3 h-3 flex-shrink-0 mt-0.5" />
-                      <span className="flex-1 min-w-0 break-words">{testResult}</span>
-                    </div>
-                  )}
-
-                  {/* 模型选择 */}
-                  <div className="flex items-end gap-2">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="text-[10px] text-zinc-400 truncate">模型</span>
-                        <button 
-                          onClick={() => editingModels[provider.id] !== undefined 
-                            ? saveModels(provider.id) 
-                            : setEditingModels((s) => ({ ...s, [provider.id]: provider.models.join(", ")}))}
-                          className="text-[10px] text-purple-500 hover:text-purple-600 whitespace-nowrap"
-                        >
-                          {editingModels[provider.id] !== undefined ? "保存" : "编辑"}
-                        </button>
-                      </div>
-                      {editingModels[provider.id] !== undefined ? (
-                        <input 
-                          autoFocus 
-                          value={editingModels[provider.id]} 
-                          onChange={(e) => setEditingModels((s) => ({ ...s, [provider.id]: e.target.value }))}
-                          onKeyDown={(e) => { if (e.key === "Enter") saveModels(provider.id); }}
-                          placeholder="模型名称，逗号分隔"
-                          className="w-full text-xs rounded-xl border border-purple-300 dark:border-purple-600 bg-white dark:bg-zinc-800 px-3 py-1.5 text-zinc-700 dark:text-zinc-300 focus:outline-none focus:ring-1 focus:ring-purple-400 truncate" 
-                        />
-                      ) : (
-                        <SearchableModelSelect
-                          models={provider.models}
-                          activeModel={provider.id === activeProviderId ? activeModel : ""}
-                          onSelect={(model) => { setActiveProvider(provider.id); setActiveModel(model); }}
-                        />
-                      )}
-                    </div>
-                    <Button 
-                      variant="secondary" 
-                      size="sm" 
-                      onClick={() => handleTest(provider.id)} 
-                      disabled={isTesting || !cred?.apiKey}
-                      className="whitespace-nowrap flex-shrink-0"
-                    >
-                      <RefreshCw className={cn("w-3 h-3", isTesting && "animate-spin")} />
-                      拉取
-                    </Button>
-                  </div>
-                </div>
-              );
-            })}
+            </button>
+            <button
+              onClick={() => { setShowCustom(false); setCustomForm({ name: "", apiBase: "https://api.openai.com/v1", providerType: "openai-compat" }); }}
+              className="px-3 py-1.5 rounded-lg text-xs font-medium border border-ds-border text-ds-muted hover:text-ds-text-primary hover:bg-ds-hover transition-colors"
+            >
+              取消
+            </button>
           </div>
         </div>
       )}
 
       {providers.length === 0 && (
-        <div className="text-center py-12 text-zinc-400 dark:text-zinc-500 text-sm">
-          <Sparkles className="w-8 h-8 mx-auto mb-2 opacity-50" />
-          <p className="truncate">点击上方快速添加供应商，或自定义配置</p>
+        <div className="text-center py-10">
+          <p className="text-sm text-ds-muted">点击上方按钮添加一个供应商开始使用</p>
         </div>
       )}
+
+      <div className="space-y-2">
+        {providers.map((provider) => {
+          const cred = credentials[provider.id];
+          const isActive = provider.id === activeProviderId;
+          const isTesting = testing[provider.id];
+          const testResult = testResults[provider.id];
+          return (
+            <div
+              key={provider.id}
+              className={cn(
+                "rounded-lg border transition-colors",
+                isActive
+                  ? "border-ds-accent/30 bg-ds-surface-elevated"
+                  : "border-ds-border bg-ds-surface-elevated/50 hover:border-ds-accent/20"
+              )}
+            >
+              <div className="flex items-center justify-between px-4 py-2.5">
+                <div className="flex items-center gap-2 min-w-0 flex-1">
+                  <span className="text-sm font-medium text-ds-text-primary truncate">{provider.name}</span>
+                  <span className="text-[10px] text-ds-muted bg-ds-bg-main px-1.5 py-0.5 rounded">
+                    {provider.providerType === "anthropic" ? "Anthropic" : "OpenAI"}
+                  </span>
+                  {isActive && (
+                    <span className="text-[10px] text-ds-accent font-medium">使用中</span>
+                  )}
+                </div>
+                <div className="flex items-center gap-1">
+                  {!isActive && (
+                    <button
+                      onClick={() => { setActiveProvider(provider.id); if (provider.models[0]) setActiveModel(provider.models[0]); }}
+                      className="px-2 py-1 text-xs text-ds-accent hover:bg-ds-hover rounded-md transition-colors font-medium"
+                    >
+                      使用
+                    </button>
+                  )}
+                  <button
+                    onClick={() => { removeProvider(provider.id); removeCredential(provider.id); }}
+                    className="p-1 rounded text-ds-muted hover:text-ds-danger hover:bg-ds-danger/10 transition-colors"
+                    title="删除"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+
+              <div className="px-4 pb-3.5 space-y-2.5">
+                <div>
+                  <label className="text-[10px] text-ds-muted block mb-0.5">API Base</label>
+                  <input
+                    value={provider.apiBase}
+                    onChange={(e) => updateProvider(provider.id, { apiBase: e.target.value })}
+                    className="w-full text-xs rounded-md border border-ds-border bg-ds-bg-main px-2.5 py-1.5 text-ds-text-primary focus:outline-none focus:ring-1 focus:ring-ds-accent/40 focus:border-ds-accent transition-colors font-mono"
+                  />
+                </div>
+                <div className="flex gap-3 items-end">
+                  <div className="flex-1">
+                    <label className="text-[10px] text-ds-muted block mb-0.5">API Key</label>
+                    <div className="relative">
+                      <input
+                        type={showKey[provider.id] ? "text" : "password"}
+                        value={cred?.apiKey || ""}
+                        onChange={(e) => setCredential(provider.id, e.target.value)}
+                        className="w-full text-xs rounded-md border border-ds-border bg-ds-bg-main px-2.5 py-1.5 pr-7 text-ds-text-primary placeholder:text-ds-muted focus:outline-none focus:ring-1 focus:ring-ds-accent/40 focus:border-ds-accent transition-colors"
+                        placeholder="sk-..."
+                      />
+                      <button
+                        onClick={() => setShowKey((s) => ({ ...s, [provider.id]: !s[provider.id] }))}
+                        className="absolute right-1.5 top-1/2 -translate-y-1/2 text-ds-muted hover:text-ds-text-primary"
+                      >
+                        {showKey[provider.id] ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+                      </button>
+                    </div>
+                  </div>
+                  <div className="w-44">
+                    <label className="text-[10px] text-ds-muted block mb-0.5">模型</label>
+                    <SearchableModelSelect
+                      models={provider.models}
+                      activeModel={isActive ? activeModel : (provider.models[0] || "")}
+                      onSelect={(m) => { setActiveProvider(provider.id); setActiveModel(m); }}
+                    />
+                  </div>
+                  <button
+                    onClick={() => handleTest(provider.id)}
+                    disabled={isTesting || !cred?.apiKey}
+                    className={cn(
+                      "px-3.5 py-1.5 rounded-lg text-xs font-medium border transition-colors flex-shrink-0",
+                      "border-ds-border text-ds-muted hover:text-ds-text-primary hover:bg-ds-hover",
+                      "disabled:opacity-40 disabled:cursor-not-allowed"
+                    )}
+                  >
+                    {isTesting ? <Loader2 className="w-3 h-3 animate-spin" /> : "测试"}
+                  </button>
+                </div>
+
+                {testResult && (
+                  <div className={cn(
+                    "text-xs px-2.5 py-1.5 rounded-md flex items-start gap-1.5",
+                    testResult.startsWith("✓")
+                      ? "bg-ds-success/10 text-ds-success"
+                      : "bg-ds-danger/10 text-ds-danger"
+                  )}>
+                    <AlertCircle className="w-3 h-3 flex-shrink-0 mt-0.5" />
+                    <span className="break-words">{testResult}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }

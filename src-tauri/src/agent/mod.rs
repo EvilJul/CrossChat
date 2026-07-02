@@ -1,6 +1,7 @@
 pub mod react;
 pub mod task_decomposer;
 pub mod tool_registry;
+pub mod compactor;
 
 use crate::mcp::global_mcp;
 use crate::memory::{global_memory, Memory};
@@ -8,6 +9,7 @@ use crate::providers::types::{ChatSyncResult, ContentBlock, MessageRole, StreamC
 use crate::providers::LlmProvider;
 use crate::tools;
 use serde::{Deserialize, Serialize};
+use std::fmt::Write;
 use task_decomposer::{Task, TaskDecomposer, TaskStatus};
 use tool_registry::ToolRegistry;
 
@@ -58,12 +60,26 @@ impl Default for AgentConfig {
     }
 }
 
+#[derive(Clone)]
+pub struct NoOpStreamSender;
+impl crate::commands::chat::StreamSender for NoOpStreamSender {
+    fn send(&self, _chunk: StreamChunk) -> Result<(), String> {
+        Ok(())
+    }
+}
+
 /// 核心 Agent 结构
 pub struct Agent {
     config: AgentConfig,
     tool_registry: ToolRegistry,
     context: Vec<UnifiedMessage>,
     steps: Vec<AgentStep>,
+    pub depth: usize,
+    pub spawn_count: usize,
+    pub total_child_runs: usize,
+    pub prompt_tokens: usize,
+    pub completion_tokens: usize,
+    pub allowed_tools: Option<Vec<String>>,
 }
 
 impl Agent {
@@ -73,6 +89,12 @@ impl Agent {
             tool_registry,
             context: Vec::new(),
             steps: Vec::new(),
+            depth: 0,
+            spawn_count: 0,
+            total_child_runs: 0,
+            prompt_tokens: 0,
+            completion_tokens: 0,
+            allowed_tools: None,
         }
     }
 
@@ -84,9 +106,14 @@ impl Agent {
         model: &str,
     ) -> Result<AgentResult, String> {
         self.context = initial_messages;
+        self.initialize_skills_and_gating();
 
         for iteration in 0..self.config.max_iterations {
             let tool_defs = self.tool_registry.get_all_definitions();
+
+            // 累计估算 prompt tokens
+            let prompt_toks = crate::agent::compactor::ContextCompactor::estimate_tokens(&self.context);
+            self.prompt_tokens += prompt_toks;
 
             // 调用 LLM 思考并决定行动
             let result = provider
@@ -96,6 +123,16 @@ impl Agent {
 
             match result {
                 ChatSyncResult::Content(text) => {
+                    // 累计估算 completion tokens
+                    let response_msg = UnifiedMessage {
+                        role: MessageRole::Assistant,
+                        content: vec![ContentBlock::Text { text: text.clone() }],
+                        tool_calls: None,
+                        tool_call_id: None,
+                        reasoning_content: None,
+                    };
+                    self.completion_tokens += crate::agent::compactor::ContextCompactor::estimate_tokens(&[response_msg]);
+
                     // LLM 给出最终答案
                     return Ok(AgentResult {
                         success: true,
@@ -105,15 +142,45 @@ impl Agent {
                     });
                 }
                 ChatSyncResult::ToolCalls { calls, reasoning } => {
+                    // 累计估算 completion tokens (来自思考和工具调用)
+                    let response_msg = UnifiedMessage {
+                        role: MessageRole::Assistant,
+                        content: vec![],
+                        tool_calls: Some(calls.clone()),
+                        tool_call_id: None,
+                        reasoning_content: reasoning.clone(),
+                    };
+                    self.completion_tokens += crate::agent::compactor::ContextCompactor::estimate_tokens(&[response_msg]);
+
                     // 记录思考过程
                     let thought = reasoning.clone().unwrap_or_else(|| "执行工具调用".into());
 
                     // 执行所有工具调用
                     let mut actions = Vec::new();
                     for tc in &calls {
-                        let result = self.tool_registry
-                            .execute(&tc.name, &tc.arguments, &self.config.work_dir)
-                            .await;
+                        let result = if !self.is_tool_allowed(&tc.name) {
+                            tools::ToolResult {
+                                success: false,
+                                content: format!("Security Error: Tool '{}' is blocked. This turn is gated by the active skills and only allowed tools can be executed.", tc.name),
+                            }
+                        } else if tc.name == "delegate_task" {
+                            self.spawn_count += 1;
+                            self.handle_delegate_task(tc, provider, model, NoOpStreamSender).await
+                        } else if tc.name == "mcp_search" {
+                            self.handle_mcp_search(tc).await
+                        } else if tc.name == "mcp_describe" {
+                            self.handle_mcp_describe(tc).await
+                        } else if tc.name == "mcp_call" {
+                            self.handle_mcp_call(tc).await
+                        } else if tc.name == "mcp_refresh_catalog" {
+                            self.handle_mcp_refresh_catalog().await
+                        } else if tc.name.starts_with("mcp_") {
+                            execute_mcp_tool(tc, &self.config.work_dir).await
+                        } else {
+                            self.tool_registry
+                                .execute(&tc.name, &tc.arguments, &self.config.work_dir)
+                                .await
+                        };
 
                         actions.push(AgentAction {
                             tool_name: tc.name.clone(),
@@ -171,6 +238,7 @@ impl Agent {
         channel: T,
     ) -> Result<AgentResult, String> {
         self.context = initial_messages;
+        self.initialize_skills_and_gating();
 
         // 提取用户任务
         let user_task = self.context.iter()
@@ -232,9 +300,13 @@ impl Agent {
         for iteration in 0..self.config.max_iterations {
             let tool_defs = self.tool_registry.get_all_definitions();
 
+            // 累计估算 prompt tokens
+            let prompt_toks = crate::agent::compactor::ContextCompactor::estimate_tokens(&self.context);
+            self.prompt_tokens += prompt_toks;
+
             // 发送进度提示，避免前端长时间无反馈
             let _ = channel.send(StreamChunk::StatusDelta {
-                message: format!("思考中 (第 {} 轮)", iteration + 1),
+                message: format!("Thinking (iteration {})", iteration + 1),
             });
 
             let result = provider
@@ -249,6 +321,16 @@ impl Agent {
 
             match result {
                 ChatSyncResult::Content(text) => {
+                    // 累计估算 completion tokens
+                    let response_msg = UnifiedMessage {
+                        role: MessageRole::Assistant,
+                        content: vec![ContentBlock::Text { text: text.clone() }],
+                        tool_calls: None,
+                        tool_call_id: None,
+                        reasoning_content: None,
+                    };
+                    self.completion_tokens += crate::agent::compactor::ContextCompactor::estimate_tokens(&[response_msg]);
+
                     // 批量发送文本，每 15 个字符为一组，2ms 间隔保持视觉打字效果
                     let chars: Vec<char> = text.chars().collect();
                     for chunk in chars.chunks(15) {
@@ -285,6 +367,16 @@ impl Agent {
                     });
                 }
                 ChatSyncResult::ToolCalls { calls, reasoning } => {
+                    // 累计估算 completion tokens (来自思考和工具调用)
+                    let response_msg = UnifiedMessage {
+                        role: MessageRole::Assistant,
+                        content: vec![],
+                        tool_calls: Some(calls.clone()),
+                        tool_call_id: None,
+                        reasoning_content: reasoning.clone(),
+                    };
+                    self.completion_tokens += crate::agent::compactor::ContextCompactor::estimate_tokens(&[response_msg]);
+
                     // 发送思考内容（如果有），前端以 ThinkingBubble 展示
                     if let Some(ref r) = reasoning {
                         if !r.is_empty() {
@@ -311,8 +403,24 @@ impl Agent {
                     let mut actions = Vec::new();
                     for tc in &calls {
                         tools_used.push(tc.name.clone());
-                        let result = if tc.name.starts_with("mcp_") {
-                            execute_mcp_tool(tc).await
+                        let result = if !self.is_tool_allowed(&tc.name) {
+                            tools::ToolResult {
+                                success: false,
+                                content: format!("Security Error: Tool '{}' is blocked. This turn is gated by the active skills and only allowed tools can be executed.", tc.name),
+                            }
+                        } else if tc.name == "delegate_task" {
+                            self.spawn_count += 1;
+                            self.handle_delegate_task(tc, provider, model, channel.clone()).await
+                        } else if tc.name == "mcp_search" {
+                            self.handle_mcp_search(tc).await
+                        } else if tc.name == "mcp_describe" {
+                            self.handle_mcp_describe(tc).await
+                        } else if tc.name == "mcp_call" {
+                            self.handle_mcp_call(tc).await
+                        } else if tc.name == "mcp_refresh_catalog" {
+                            self.handle_mcp_refresh_catalog().await
+                        } else if tc.name.starts_with("mcp_") {
+                            execute_mcp_tool(tc, &self.config.work_dir).await
                         } else {
                             self.tool_registry.execute(&tc.name, &tc.arguments, &self.config.work_dir).await
                         };
@@ -411,8 +519,13 @@ impl Agent {
                                     id: tc.id.clone(),
                                 });
 
-                                let result = if tc.name.starts_with("mcp_") {
-                                    execute_mcp_tool(tc).await
+                                let result = if !self.is_tool_allowed(&tc.name) {
+                                    tools::ToolResult {
+                                        success: false,
+                                        content: format!("Security Error: Tool '{}' is blocked. This turn is gated by the active skills and only allowed tools can be executed.", tc.name),
+                                    }
+                                } else if tc.name.starts_with("mcp_") {
+                                    execute_mcp_tool(tc, &self.config.work_dir).await
                                 } else {
                                     self.tool_registry.execute(&tc.name, &tc.arguments, &self.config.work_dir).await
                                 };
@@ -531,10 +644,336 @@ impl Agent {
             }
         }
     }
+
+    /// 处理子智能体任务委派 (delegate_task)
+    pub fn handle_delegate_task<'a, T: crate::commands::chat::StreamSender + Clone + Send + 'a>(
+        &'a mut self,
+        tc: &'a crate::providers::types::ToolCall,
+        provider: &'a dyn LlmProvider,
+        parent_model: &'a str,
+        channel: T,
+    ) -> futures_util::future::BoxFuture<'a, tools::ToolResult> {
+        use futures_util::future::FutureExt;
+        async move {
+            // 1. 预算限制校验
+            if self.total_child_runs >= 10 {
+                return tools::ToolResult {
+                    success: false,
+                    content: "Error: Max delegation budget (10 runs) reached inside the thread tree.".into(),
+                };
+            }
+
+            // 2. 解析参数
+            let prompt = match tc.arguments["prompt"].as_str() {
+                Some(p) => p.to_string(),
+                None => {
+                    return tools::ToolResult {
+                        success: false,
+                        content: "Error: Missing required argument 'prompt'.".into(),
+                    };
+                }
+            };
+
+            let label = tc.arguments["label"].as_str().unwrap_or("subtask");
+            let workspace = tc.arguments["workspace"].as_str().unwrap_or(&self.config.work_dir);
+            let model = tc.arguments["model"].as_str().unwrap_or(parent_model);
+
+            let _ = channel.send(StreamChunk::StatusDelta {
+                message: format!("[Delegation] Spawning sub-agent for '{}'", label),
+            });
+
+            // 3. 创建子智能体实例并隔离状态
+            let mut child_config = self.config.clone();
+            child_config.work_dir = workspace.to_string();
+            child_config.enable_task_decomposition = false; // 子智能体不执行并行任务拆分
+
+            let mut child_registry = ToolRegistry::new();
+            // 注册同样的内置工具
+            for tool in tools::get_all_tool_definitions() {
+                child_registry.register(tool);
+            }
+
+            let mut child_agent = Agent::new(child_config, child_registry);
+            child_agent.depth = self.depth + 1;
+            child_agent.total_child_runs = self.total_child_runs + 1;
+            child_agent.spawn_count = 0;
+
+            // 构建内存隔离的初始消息上下文
+            let child_initial_context = vec![
+                crate::providers::types::UnifiedMessage {
+                    role: crate::providers::types::MessageRole::User,
+                    content: vec![crate::providers::types::ContentBlock::Text {
+                        text: format!(
+                            "[Task Delegation - 子沙盒运行]\n\
+                             你是一个被委派的子智能体。你的目标是完成以下具体任务:\n\n\
+                             任务指令: {}\n\n\
+                             重要: 请在当前工作区独立完成该任务，并在结束时输出清晰的最终回答。",
+                            prompt
+                        ),
+                    }],
+                    tool_calls: None,
+                    tool_call_id: None,
+                    reasoning_content: None,
+                }
+            ];
+
+            // 4. 阻塞运行子智能体
+            let start_time = std::time::Instant::now();
+            let child_result = child_agent.run_with_stream(
+                provider,
+                child_initial_context,
+                model,
+                channel.clone()
+            ).await;
+
+            let duration_ms = start_time.elapsed().as_millis();
+
+            // 5. 用量累计 Roll-up
+            let child_prompt = child_agent.prompt_tokens;
+            let child_completion = child_agent.completion_tokens;
+
+            self.prompt_tokens += child_prompt;
+            self.completion_tokens += child_completion;
+
+            // 更新父智能体总计运行数
+            self.total_child_runs = child_agent.total_child_runs;
+
+            // 6. 处理执行结果并警告多重调用
+            let warning_suffix = if self.spawn_count > 1 {
+                format!(
+                    "\n\n[Warning: Thread tree contains multiple child agent runs. \
+                     Current parent spawn_count: {}. Please avoid redundant recursive calls.]",
+                    self.spawn_count
+                )
+            } else {
+                "".to_string()
+            };
+
+            match child_result {
+                Ok(res) => {
+                    let _ = channel.send(StreamChunk::StatusDelta {
+                        message: format!(
+                            "[Delegation] Sub-agent '{}' completed successfully in {}ms (used estimated {} prompt, {} completion tokens)",
+                            label, duration_ms, child_prompt, child_completion
+                        ),
+                    });
+                    tools::ToolResult {
+                        success: true,
+                        content: format!(
+                            "Sub-agent completed target task successfully.\n\n\
+                             Final Summary:\n{}\n\n\
+                             Execution Time: {}ms{}",
+                            res.final_answer, duration_ms, warning_suffix
+                        ),
+                    }
+                }
+                Err(err) => {
+                    let _ = channel.send(StreamChunk::StatusDelta {
+                        message: format!("[Delegation] Sub-agent '{}' failed: {}", label, err),
+                    });
+                    tools::ToolResult {
+                        success: false,
+                        content: format!(
+                            "Sub-agent execution encountered an error.\n\n\
+                             Error Details: {}{}",
+                            err, warning_suffix
+                        ),
+                    }
+                }
+            }
+        }.boxed()
+    }
+
+    /// 处理 MCP 工具库检索 (BM25 模糊匹配算法)
+    pub async fn handle_mcp_search(&self, tc: &crate::providers::types::ToolCall) -> tools::ToolResult {
+        let query = tc.arguments["query"].as_str().unwrap_or("").to_lowercase();
+        if query.is_empty() {
+            return tools::ToolResult {
+                success: false,
+                content: "Error: Query cannot be empty.".into(),
+            };
+        }
+
+        let mut matched = Vec::new();
+        for (name, def) in self.tool_registry.get_tools() {
+            if !name.starts_with("mcp_") {
+                continue;
+            }
+
+            let mut score = 0.0;
+            let name_lower = name.to_lowercase();
+            let desc_lower = def.description.to_lowercase();
+            let params_str = def.parameters.to_string().to_lowercase();
+
+            // 扩展查询词同义词权重
+            let mut expanded_queries = vec![query.clone()];
+            if query.contains("find") || query.contains("search") || query.contains("查找") || query.contains("搜索") {
+                expanded_queries.push("find".to_string());
+                expanded_queries.push("search".to_string());
+                expanded_queries.push("get".to_string());
+            }
+            if query.contains("update") || query.contains("modify") || query.contains("edit") || query.contains("修改") || query.contains("编辑") {
+                expanded_queries.push("update".to_string());
+                expanded_queries.push("modify".to_string());
+                expanded_queries.push("edit".to_string());
+                expanded_queries.push("write".to_string());
+            }
+
+            for q in &expanded_queries {
+                // 工具名称匹配：x5.0
+                if name_lower.contains(q) {
+                    score += 5.0;
+                }
+                // 工具描述匹配：x1.0
+                if desc_lower.contains(q) {
+                    score += 1.0;
+                }
+                // 工具入参匹配：x2.0
+                if params_str.contains(q) {
+                    score += 2.0;
+                }
+            }
+
+            if score >= 0.15 {
+                matched.push((name.clone(), def.description.clone(), score));
+            }
+        }
+
+        matched.sort_by(|a, b| b.2.partial_cmp(&a.2).unwrap_or(std::cmp::Ordering::Equal));
+        let top_matches = matched.iter().take(5);
+
+        let mut result_content = String::from("Found matching MCP tools:\n\n");
+        for (name, desc, score) in top_matches {
+            let _ = writeln!(result_content, "- **{}**: {} (Score: {:.2})", name, desc, score);
+        }
+
+        if matched.is_empty() {
+            result_content = "No matching MCP tools found. Please try a different query.".into();
+        }
+
+        tools::ToolResult {
+            success: true,
+            content: result_content,
+        }
+    }
+
+    /// 获取特定 MCP 工具的参数细节
+    pub async fn handle_mcp_describe(&self, tc: &crate::providers::types::ToolCall) -> tools::ToolResult {
+        let tool_name = tc.arguments["tool_name"].as_str().unwrap_or("");
+        if let Some(def) = self.tool_registry.get_tools().get(tool_name) {
+            tools::ToolResult {
+                success: true,
+                content: format!(
+                    "Tool: {}\nDescription: {}\nParameters Schema:\n{}",
+                    tool_name,
+                    def.description,
+                    serde_json::to_string_pretty(&def.parameters).unwrap_or_default()
+                ),
+            }
+        } else {
+            tools::ToolResult {
+                success: false,
+                content: format!("Error: Tool '{}' not found in registry.", tool_name),
+            }
+        }
+    }
+
+    /// 调用 MCP 工具
+    pub async fn handle_mcp_call(&self, tc: &crate::providers::types::ToolCall) -> tools::ToolResult {
+        let tool_name = tc.arguments["tool_name"].as_str().unwrap_or("");
+        let args = tc.arguments.get("arguments").cloned().unwrap_or(serde_json::json!({}));
+
+        let mut mock_call = tc.clone();
+        mock_call.name = tool_name.to_string();
+        mock_call.arguments = args;
+
+        execute_mcp_tool(&mock_call, &self.config.work_dir).await
+    }
+
+    /// 重新加载 MCP 工具目录
+    pub async fn handle_mcp_refresh_catalog(&self) -> tools::ToolResult {
+        let mcp = global_mcp();
+        let _ = mcp.get_all_tools("").await;
+        tools::ToolResult {
+            success: true,
+            content: "MCP tool catalog refreshed successfully.".into(),
+        }
+    }
+
+    pub fn is_tool_allowed(&self, name: &str) -> bool {
+        if let Some(ref allowed) = self.allowed_tools {
+            // Check exact match
+            if allowed.contains(&name.to_string()) {
+                return true;
+            }
+            // Check without "mcp_" prefix
+            if name.starts_with("mcp_") {
+                let without_prefix = &name[4..];
+                if allowed.contains(&without_prefix.to_string()) {
+                    return true;
+                }
+            }
+            // Meta-tools used for MCP discovery and delegation are always allowed
+            if name == "mcp_search" || name == "mcp_describe" || name == "mcp_call" || name == "mcp_refresh_catalog" || name == "delegate_task" {
+                return true;
+            }
+            false
+        } else {
+            true
+        }
+    }
+
+    pub fn initialize_skills_and_gating(&mut self) {
+        let user_task = self.context.iter()
+            .find(|m| matches!(m.role, MessageRole::User))
+            .and_then(|m| m.content.iter().find_map(|c| {
+                if let ContentBlock::Text { text } = c { Some(text.clone()) } else { None }
+            }))
+            .unwrap_or_default();
+
+        if !user_task.is_empty() {
+            let mut file_paths = Vec::new();
+            for word in user_task.split(|c: char| c.is_whitespace() || c == '`' || c == '\'' || c == '"') {
+                let trimmed = word.trim_matches(|c: char| c.is_ascii_punctuation() && c != '.' && c != '/' && c != '\\' && c != '_');
+                if trimmed.contains('.') && trimmed.len() > 2 {
+                    file_paths.push(trimmed.to_string());
+                }
+            }
+
+            let (skill_ctx, allowed_tools) = crate::skills::global_skills().get_activated_skills_context(&user_task, &file_paths);
+            if let Some(ctx) = skill_ctx {
+                let already_has = self.context.iter().any(|m| {
+                    if matches!(m.role, MessageRole::User) {
+                        m.content.iter().any(|c| {
+                            if let ContentBlock::Text { text } = c {
+                                text.contains("[已激活的 Skills — 已针对当前任务自动挂载扩展能力]")
+                            } else {
+                                false
+                            }
+                        })
+                    } else {
+                        false
+                    }
+                });
+                if !already_has {
+                    self.context.insert(0, UnifiedMessage {
+                        role: MessageRole::User,
+                        content: vec![ContentBlock::Text { text: ctx }],
+                        tool_calls: None,
+                        tool_call_id: None,
+                        reasoning_content: None,
+                    });
+                }
+            }
+            if self.allowed_tools.is_none() {
+                self.allowed_tools = allowed_tools;
+            }
+        }
+    }
 }
 
 /// 执行 MCP 工具
-async fn execute_mcp_tool(tc: &crate::providers::types::ToolCall) -> tools::ToolResult {
+async fn execute_mcp_tool(tc: &crate::providers::types::ToolCall, work_dir: &str) -> tools::ToolResult {
     let mcp = global_mcp();
     let servers = mcp.list_servers().await;
     
@@ -543,6 +982,12 @@ async fn execute_mcp_tool(tc: &crate::providers::types::ToolCall) -> tools::Tool
 
     for server in &servers {
         if !server.enabled {
+            continue;
+        }
+
+        // 校验工作区沙盒可信作用域
+        if !crate::mcp::is_mcp_server_trusted(server, work_dir) {
+            errors.push(format!("• 服务器 '{}' 未被授权在工作区 '{}' 运行 (Trust Scope)", server.name, work_dir));
             continue;
         }
         
@@ -617,4 +1062,38 @@ pub fn is_complex_task(task: &str) -> bool {
         "每个", "遍历",
     ];
     keywords.iter().any(|k| task.contains(k))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_agent_tool_gating() {
+        let config = AgentConfig {
+            max_iterations: 5,
+            work_dir: "/tmp".to_string(),
+            enable_self_healing: false,
+            enable_task_decomposition: false,
+        };
+        let registry = ToolRegistry::new();
+        let mut agent = Agent::new(config, registry);
+
+        // Initially no allowed_tools restrictions
+        assert!(agent.is_tool_allowed("read_file"));
+        assert!(agent.is_tool_allowed("run_command"));
+
+        // With allowed_tools restrictions
+        agent.allowed_tools = Some(vec!["read_file".to_string(), "write_file".to_string()]);
+        assert!(agent.is_tool_allowed("read_file"));
+        assert!(!agent.is_tool_allowed("run_command"));
+
+        // MCP tools and prefixes
+        assert!(agent.is_tool_allowed("mcp_read_file"));
+        assert!(!agent.is_tool_allowed("mcp_run_command"));
+
+        // Meta-tools should always be allowed
+        assert!(agent.is_tool_allowed("mcp_search"));
+        assert!(agent.is_tool_allowed("delegate_task"));
+    }
 }

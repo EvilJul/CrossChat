@@ -54,6 +54,8 @@ export interface SessionMessage {
   role: string;
   content: string;
   timestamp: number;
+  thinking?: string | null;
+  tool_name?: string | null;
 }
 
 export interface Session {
@@ -218,7 +220,12 @@ export interface SkillMeta {
 }
 
 export async function listSkills(): Promise<SkillMeta[]> {
-  return (await invoke("list_skills")) as SkillMeta[];
+  try {
+    return (await invoke("list_skills")) as SkillMeta[];
+  } catch (e) {
+    console.error("[tauri-bridge] list_skills failed:", e);
+    return [];
+  }
 }
 
 export async function toggleSkill(name: string, enabled: boolean): Promise<void> {
@@ -285,12 +292,11 @@ export const MCP_MARKETPLACE: Array<{
 export async function fetchModels(
   apiBase: string,
   apiKey: string,
-  providerType: string
+  _providerType: string
 ): Promise<string[]> {
-  return (await invoke("test_provider_connection", {
-    apiBase,
+  return (await invoke("fetch_models", {
     apiKey,
-    providerType,
+    apiBase,
   })) as string[];
 }
 

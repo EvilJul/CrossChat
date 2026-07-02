@@ -18,6 +18,7 @@ interface SettingsStore {
   autoScroll: boolean;
   toolApprovalMode: "always" | "dangerous_only";
   showThinking: boolean | "auto";
+  showToolCalls: boolean;
   settingsOpen: boolean;
   feedbackOpen: boolean;
   // Phase 2: API Key 内存存储 (Phase 3 迁移到 OS Keychain)
@@ -31,6 +32,7 @@ interface SettingsStore {
   setAutoScroll: (v: boolean) => void;
   setToolApprovalMode: (v: "always" | "dangerous_only") => void;
   setShowThinking: (v: boolean | "auto") => void;
+  setShowToolCalls: (v: boolean) => void;
   setSettingsOpen: (open: boolean) => void;
   setFeedbackOpen: (open: boolean) => void;
   setCredential: (providerId: string, apiKey: string) => void;
@@ -48,6 +50,7 @@ export const useSettingsStore = create<SettingsStore>()(
       autoScroll: true,
       toolApprovalMode: "dangerous_only",
       showThinking: "auto" as const,
+      showToolCalls: true,
       settingsOpen: false,
       feedbackOpen: false,
       credentials: {},
@@ -60,6 +63,7 @@ export const useSettingsStore = create<SettingsStore>()(
       setAutoScroll: (autoScroll) => set({ autoScroll }),
       setToolApprovalMode: (toolApprovalMode) => set({ toolApprovalMode }),
       setShowThinking: (showThinking) => set({ showThinking }),
+      setShowToolCalls: (showToolCalls) => set({ showToolCalls }),
       setSettingsOpen: (settingsOpen) => set({ settingsOpen }),
       setFeedbackOpen: (feedbackOpen) => set({ feedbackOpen }),
       setCredential: (providerId, apiKey) =>
@@ -68,7 +72,8 @@ export const useSettingsStore = create<SettingsStore>()(
         })),
       removeCredential: (providerId) =>
         set((s) => {
-          const { [providerId]: _, ...rest } = s.credentials;
+          const rest = { ...s.credentials };
+          delete rest[providerId];
           return { credentials: rest };
         }),
     }),
@@ -84,6 +89,7 @@ export const useSettingsStore = create<SettingsStore>()(
         autoScroll: state.autoScroll,
         toolApprovalMode: state.toolApprovalMode,
         showThinking: state.showThinking,
+        showToolCalls: state.showToolCalls,
         credentials: state.credentials,
       }),
     }

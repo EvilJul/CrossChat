@@ -220,13 +220,19 @@ impl MemoryManager {
 
 impl Default for MemoryManager {
     fn default() -> Self {
-        Self::new().expect("无法初始化记忆管理器")
+        Self::new().unwrap_or_else(|e| {
+            eprintln!("[MemoryManager] 初始化失败: {}，使用内存降级模式", e);
+            Self { db_path: std::path::PathBuf::from(":memory:") }
+        })
     }
 }
 
 /// 全局记忆管理器
 static MEMORY_MANAGER: std::sync::LazyLock<MemoryManager> =
-    std::sync::LazyLock::new(|| MemoryManager::new().expect("无法初始化记忆管理器"));
+    std::sync::LazyLock::new(|| MemoryManager::new().unwrap_or_else(|e| {
+        eprintln!("[MemoryManager] 全局初始化失败: {}，使用降级模式", e);
+        MemoryManager { db_path: std::path::PathBuf::from(":memory:") }
+    }));
 
 pub fn global_memory() -> &'static MemoryManager {
     &MEMORY_MANAGER

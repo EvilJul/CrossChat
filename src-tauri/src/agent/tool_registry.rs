@@ -34,9 +34,69 @@ impl ToolRegistry {
         }
     }
 
-    /// 获取所有工具定义
+    /// 获取所有工具的哈希映射引用
+    pub fn get_tools(&self) -> &HashMap<String, ToolDefinition> {
+        &self.tools
+    }
+
+    /// 获取所有工具定义（支持多工具动态目录检索折叠）
     pub fn get_all_definitions(&self) -> Vec<ToolDefinition> {
-        self.tools.values().cloned().collect()
+        let mcp_tool_count = self.tools.keys().filter(|k| k.starts_with("mcp_")).count();
+        if mcp_tool_count > 24 {
+            let mut result = Vec::new();
+            for (name, tool) in &self.tools {
+                if !name.starts_with("mcp_") {
+                    result.push(tool.clone());
+                }
+            }
+            // 注入 4 个元管理工具定义
+            result.push(ToolDefinition {
+                name: "mcp_search".into(),
+                description: "在本地 MCP 工具库中模糊搜索相关工具。当可用工具过多时，使用此工具查找所需的能力。".into(),
+                parameters: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "query": {"type": "string", "description": "搜索关键词（如同义词、操作名称）"}
+                    },
+                    "required": ["query"]
+                }),
+            });
+            result.push(ToolDefinition {
+                name: "mcp_describe".into(),
+                description: "获取特定 MCP 工具的详细 JSON Schema 说明和输入参数定义。".into(),
+                parameters: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "tool_name": {"type": "string", "description": "工具名称（包含 mcp_ 前缀）"}
+                    },
+                    "required": ["tool_name"]
+                }),
+            });
+            result.push(ToolDefinition {
+                name: "mcp_call".into(),
+                description: "调用指定的 MCP 工具。传入工具名称和其所需的 JSON arguments 参数字典。".into(),
+                parameters: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "tool_name": {"type": "string", "description": "要调用的工具名称（如 mcp_xxx）"},
+                        "arguments": {"type": "object", "description": "要传入工具的 JSON 参数字典"}
+                    },
+                    "required": ["tool_name", "arguments"]
+                }),
+            });
+            result.push(ToolDefinition {
+                name: "mcp_refresh_catalog".into(),
+                description: "刷新本地 MCP 服务器缓存，重新构建索引目录。".into(),
+                parameters: serde_json::json!({
+                    "type": "object",
+                    "properties": {},
+                    "required": []
+                }),
+            });
+            result
+        } else {
+            self.tools.values().cloned().collect()
+        }
     }
 
     /// 执行工具（带性能监控）

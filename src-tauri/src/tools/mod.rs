@@ -83,12 +83,32 @@ pub fn get_all_tool_definitions() -> Vec<ToolDefinition> {
                 "required": ["command"]
             }),
         },
+        ToolDefinition {
+            name: "delegate_task".into(),
+            description: "将具体子任务委派给独立的子智能体（Child Agent）执行，沙箱隔离运行。".into(),
+            parameters: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "prompt": {"type": "string", "description": "委派给子智能体执行的具体指令"},
+                    "label": {"type": "string", "description": "子任务名/语义标签（可选）"},
+                    "workspace": {"type": "string", "description": "工作目录（可选，默认继承父智能体）"},
+                    "model": {"type": "string", "description": "执行子任务的模型（可选，默认继承父智能体）"}
+                },
+                "required": ["prompt"]
+            }),
+        },
     ]
 }
 
 /// 执行工具调用
 pub async fn execute_tool(name: &str, arguments: &serde_json::Value, work_dir: &str) -> ToolResult {
     match name {
+        "delegate_task" => {
+            ToolResult {
+                success: true,
+                content: "Delegate task is handled dynamically by the agent runner context.".into(),
+            }
+        }
         "install_skill" => {
             let url = arguments["url"].as_str().unwrap_or("");
             if url.is_empty() {

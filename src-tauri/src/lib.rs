@@ -1,33 +1,25 @@
-mod agent;
+mod core;
+mod ports;
+mod adapters;
+mod application;
+mod migration;
 mod commands;
-mod mcp;
-mod memory;
-mod metrics;
-mod providers;
-mod python_env;
-mod security;
-mod skills;
-mod streaming;
-mod tools;
 
-use commands::agent_cmd::{read_agent_config, write_global_agent_config};
-use commands::chat::stream_chat;
-use commands::stream_cmd::{start_stream_chat, poll_stream_chunks};
-use commands::checkpoint_cmd::{clear_checkpoint, load_checkpoint, save_checkpoint};
-use commands::file_ops::{delete_file_or_dir, get_home_dir, list_directory, read_file_content, get_file_preview_info};
-use commands::mcp_cmd::{
-    add_mcp_server, list_mcp_servers, refresh_mcp_tools, remove_mcp_server, toggle_mcp_server,
-    validate_mcp_command, test_mcp_server,
+use std::sync::Arc;
+use tauri::Manager;
+
+use commands::file_ops::{
+    delete_file_or_dir, get_home_dir, list_directory, read_file_content,
+    get_file_preview_info, read_file_bytes, write_file_bytes,
 };
-use commands::mcp_health_cmd::{check_mcp_health, get_all_mcp_health};
-use commands::memory_cmd::{cleanup_memories, get_recent_memories, search_memories};
-use commands::metrics_cmd::{cleanup_metrics, get_tool_stats};
-use commands::provider_cmd::test_provider_connection;
-use commands::python_cmd::{get_python_info, run_python_script};
+use commands::chat_cmd::{send_chat_message, fetch_models};
 use commands::session_cmd::{
     create_session, delete_session, get_session, list_sessions, save_messages,
+    set_session_status, rename_session, set_session_pinned,
 };
-use commands::skills_cmd::{get_available_skills, list_skills, remove_skill, toggle_skill};
+use migration::migrate_data;
+
+use adapters::store::SqliteThreadStore;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -35,46 +27,64 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_fs::init())
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
+        .plugin(tauri_plugin_clipboard_manager::init())
+        .setup(|app| {
+            let data_dir = dirs::data_dir()
+                .ok_or("Cannot find data directory")?
+                .join(".crosschat");
+            std::fs::create_dir_all(&data_dir)
+                .map_err(|e| format!("Failed to create data dir: {}", e))?;
+
+            let db_path = data_dir.join("threads.db");
+            let db_url = format!("sqlite:{}", db_path.display());
+
+            let thread_store = Arc::new(
+                SqliteThreadStore::new(&db_url)
+                    .map_err(|e| format!("Failed to init store: {}", e))?
+            );
+            app.manage(thread_store.clone());
+
+            // Migration + other init in background
+            tauri::async_runtime::spawn(async move {
+                if !data_dir.join(".migrated").exists() {
+                    println!("Running data migration...");
+                    match migration::migrate_sessions(thread_store.as_ref()).await {
+                        Ok(report) => {
+                            println!("Migration complete: {} of {} sessions migrated",
+                                report.success, report.total);
+                            if !report.errors.is_empty() {
+                                eprintln!("Migration errors: {:?}", report.errors);
+                            }
+                            let _ = std::fs::write(data_dir.join(".migrated"), "1");
+                        }
+                        Err(e) => eprintln!("Migration failed: {}", e),
+                    }
+                }
+            });
+
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
-            stream_chat,
-            start_stream_chat,
-            poll_stream_chunks,
-            test_provider_connection,
+            send_chat_message,
+            fetch_models,
             list_directory,
             get_home_dir,
             read_file_content,
             get_file_preview_info,
+            read_file_bytes,
+            write_file_bytes,
             delete_file_or_dir,
             create_session,
             list_sessions,
             get_session,
             save_messages,
             delete_session,
-            add_mcp_server,
-            remove_mcp_server,
-            toggle_mcp_server,
-            list_mcp_servers,
-            refresh_mcp_tools,
-            validate_mcp_command,
-            test_mcp_server,
-            check_mcp_health,
-            get_all_mcp_health,
-            get_available_skills,
-            list_skills,
-            toggle_skill,
-            remove_skill,
-            read_agent_config,
-            write_global_agent_config,
-            save_checkpoint,
-            load_checkpoint,
-            clear_checkpoint,
-            get_recent_memories,
-            search_memories,
-            cleanup_memories,
-            get_tool_stats,
-            cleanup_metrics,
-            get_python_info,
-            run_python_script,
+            set_session_status,
+            rename_session,
+            set_session_pinned,
+            migrate_data,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

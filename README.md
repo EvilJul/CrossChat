@@ -111,8 +111,7 @@ design/                 # 设计资源
 docs/                   # 项目文档
 ├── README.md           # 文档索引
 ├── FEATURES.md         # 功能特性说明
-├── UI_OPTIMIZATION_COMPLETE.md # UI 优化总结
-└── MCP_LOADING_ISSUE_FINAL_SOLUTION.md # MCP 配置指南
+└── TESTING.md          # 测试指南
 ```
 
 ## 📖 使用说明
@@ -130,7 +129,7 @@ docs/                   # 项目文档
 3. 点击安装并启用
 4. 使用"测试连接"验证插件是否正常工作
 
-详细配置指南: [docs/MCP_LOADING_ISSUE_FINAL_SOLUTION.md](docs/MCP_LOADING_ISSUE_FINAL_SOLUTION.md)
+详细配置指南: 见设置 → MCP 工具页面
 
 ## 🔒 安全
 

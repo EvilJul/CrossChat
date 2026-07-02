@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-/// Skill 元数据（从 SKILL.md 的 YAML frontmatter 解析）
+/// Skill 元数据
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SkillMeta {
     pub name: String,
@@ -15,6 +15,18 @@ pub struct SkillMeta {
     pub enabled: bool,
     #[serde(default)]
     pub builtin: bool,
+    #[serde(default)]
+    pub id: Option<String>,
+    #[serde(default)]
+    pub command: Option<String>,
+    #[serde(default)]
+    pub regex_patterns: Option<Vec<String>>,
+    #[serde(default)]
+    pub file_extensions: Option<Vec<String>>,
+    #[serde(default)]
+    pub priority: i32,
+    #[serde(default)]
+    pub allowed_tools: Option<Vec<String>>,
 }
 
 /// Skill 管理器
@@ -83,6 +95,133 @@ impl SkillManager {
         Some(context)
     }
 
+    /// 触发机制与激活评分算法：根据 prompt 和修改的文件扩展名，评分最高的前 3 个被激活并带 24KB 字节预算保护
+    pub fn get_activated_skills_context(
+        &self,
+        prompt: &str,
+        file_paths: &[String],
+    ) -> (Option<String>, Option<Vec<String>>) {
+        let skills = self.list_skills();
+        let enabled: Vec<_> = skills.into_iter().filter(|s| s.enabled).collect();
+        if enabled.is_empty() {
+            return (None, None);
+        }
+
+        let mut scored_skills = Vec::new();
+        let prompt_lower = prompt.to_lowercase();
+
+        for skill in enabled {
+            let mut score = 0;
+            let mut matched = false;
+            let skill_id = skill.id.clone().unwrap_or_else(|| skill.name.clone());
+
+            // 1. 显式提及 (Explicit Mention)
+            let mention_id = format!("@{}", skill_id.to_lowercase());
+            let slash_id = format!("/skill:{}", skill_id.to_lowercase());
+            if prompt_lower.contains(&mention_id) || prompt_lower.contains(&slash_id) {
+                score = 1000 + skill.priority;
+                matched = true;
+            }
+
+            // 2. 前缀命令触发 (Command Starts-with)
+            if !matched {
+                if let Some(cmd) = &skill.command {
+                    let cmd_lower = cmd.to_lowercase();
+                    if prompt_lower.starts_with(&cmd_lower) {
+                        score = 900 + skill.priority;
+                        matched = true;
+                    }
+                }
+            }
+
+            // 3. 正则表达式匹配 (Prompt Patterns Regex)
+            if !matched {
+                if let Some(regexes) = &skill.regex_patterns {
+                    for pattern in regexes {
+                        if let Ok(re) = regex::Regex::new(pattern) {
+                            if re.is_match(prompt) {
+                                score = 500 + skill.priority;
+                                matched = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 4. 文件类型/路径匹配 (File Types Extension)
+            if !matched {
+                if let Some(extensions) = &skill.file_extensions {
+                    for path in file_paths {
+                        let path_lower = path.to_lowercase();
+                        for ext in extensions {
+                            if path_lower.ends_with(&ext.to_lowercase()) {
+                                score = 300 + skill.priority;
+                                matched = true;
+                                break;
+                            }
+                        }
+                        if matched {
+                            break;
+                        }
+                    }
+                }
+            }
+
+            if matched && score > 0 {
+                scored_skills.push((skill, score));
+            }
+        }
+
+        if scored_skills.is_empty() {
+            return (None, None);
+        }
+
+        // 按评分降序排序，取最高评分的前 3 个
+        scored_skills.sort_by(|a, b| b.1.cmp(&a.1));
+        let active_skills: Vec<_> = scored_skills.into_iter().take(3).map(|item| item.0).collect();
+
+        // 拼接上下文并在 24KB 预算内截断
+        let mut context = String::from("[已激活的 Skills — 已针对当前任务自动挂载扩展能力]\n\n");
+        let mut budget_bytes = 24 * 1024; // 24KB
+        let mut allowed_tools_union = Vec::new();
+        let mut has_allowed_tools = false;
+
+        for skill in &active_skills {
+            if let Some(content) = self.read_skill_content(&skill.name) {
+                let body = if content.starts_with("---") {
+                    if let Some(end) = content[3..].find("---") {
+                        content[3 + end + 3..].trim().to_string()
+                    } else { content.clone() }
+                } else { content.clone() };
+
+                let skill_body = format!("## Active Skill: {}\n{}\n\n", skill.name, body);
+                if skill_body.len() < budget_bytes {
+                    budget_bytes -= skill_body.len();
+                    context.push_str(&skill_body);
+                } else {
+                    context.push_str(&skill_body[..budget_bytes]);
+                    break;
+                }
+            }
+
+            // Allowed tools list union
+            if let Some(tools) = &skill.allowed_tools {
+                has_allowed_tools = true;
+                for t in tools {
+                    if !allowed_tools_union.contains(t) {
+                        allowed_tools_union.push(t.clone());
+                    }
+                }
+            }
+        }
+
+        let final_context = Some(context);
+        let final_allowed = if has_allowed_tools { Some(allowed_tools_union) } else { None };
+
+        (final_context, final_allowed)
+    }
+
     pub fn install_builtin_skill(&self, name: &str, content: &str) -> Result<(), String> {
         let skill_dir = self.skills_dir.join(name);
         std::fs::create_dir_all(&skill_dir).map_err(|e| e.to_string())?;
@@ -135,33 +274,90 @@ impl SkillManager {
     }
 
     fn parse_skill_meta(&self, skill_md: &std::path::Path, dir: &std::path::Path) -> Option<SkillMeta> {
-        let content = std::fs::read_to_string(skill_md).ok()?;
         let dir_name = dir.file_name()?.to_string_lossy().to_string();
+        let skill_json = dir.join("skill.json");
 
-        let (name, description, version, builtin) = if content.starts_with("---") {
-            let end = content[3..].find("---")?;
-            let fm = &content[3..3 + end];
-            (
-                extract_yaml_field(fm, "name").unwrap_or_else(|| dir_name.clone()),
-                extract_yaml_field(fm, "description").unwrap_or_else(|| "无描述".into()),
-                extract_yaml_field(fm, "version").unwrap_or_else(|| "0.1.0".into()),
-                extract_yaml_field(fm, "builtin").map(|v| v == "true").unwrap_or(false),
-            )
+        let mut meta = if skill_json.exists() {
+            if let Ok(json_content) = std::fs::read_to_string(&skill_json) {
+                if let Ok(m) = serde_json::from_str::<SkillMeta>(&json_content) {
+                    m
+                } else {
+                    self.parse_from_markdown(skill_md, &dir_name)?
+                }
+            } else {
+                self.parse_from_markdown(skill_md, &dir_name)?
+            }
         } else {
-            let first_line = content.lines().next().unwrap_or(&dir_name);
-            (dir_name.clone(), first_line.trim_start_matches('#').trim().into(), "0.1.0".into(), false)
+            self.parse_from_markdown(skill_md, &dir_name)?
         };
 
         let cfg_path = self.skills_dir.join("_config.json");
         let enabled = if cfg_path.exists() {
             if let Ok(cfg) = std::fs::read_to_string(&cfg_path) {
                 if let Ok(map) = serde_json::from_str::<HashMap<String, bool>>(&cfg) {
-                    map.get(&name).copied().unwrap_or(true)
+                    map.get(&meta.name).copied().unwrap_or(true)
                 } else { true }
             } else { true }
         } else { true };
 
-        Some(SkillMeta { name, description, version, enabled, builtin })
+        meta.enabled = enabled;
+        Some(meta)
+    }
+
+    fn parse_from_markdown(&self, skill_md: &std::path::Path, dir_name: &str) -> Option<SkillMeta> {
+        let content = std::fs::read_to_string(skill_md).ok()?;
+        let mut name = dir_name.to_string();
+        let mut description = "无描述".to_string();
+        let mut version = "0.1.0".to_string();
+        let mut builtin = false;
+        let mut id = None;
+        let mut command = None;
+        let mut regex_patterns = None;
+        let mut file_extensions = None;
+        let mut priority = 0;
+        let mut allowed_tools = None;
+
+        if content.starts_with("---") {
+            if let Some(end) = content[3..].find("---") {
+                let fm = &content[3..3 + end];
+                name = extract_yaml_field(fm, "name").unwrap_or_else(|| dir_name.to_string());
+                description = extract_yaml_field(fm, "description").unwrap_or_else(|| "无描述".to_string());
+                version = extract_yaml_field(fm, "version").unwrap_or_else(|| "0.1.0".to_string());
+                builtin = extract_yaml_field(fm, "builtin").map(|v| v == "true").unwrap_or(false);
+                id = extract_yaml_field(fm, "id");
+                command = extract_yaml_field(fm, "command");
+                
+                if let Some(pat_str) = extract_yaml_field(fm, "regex_patterns").or(extract_yaml_field(fm, "regex")) {
+                    regex_patterns = Some(pat_str.split(',').map(|s| s.trim().to_string()).collect());
+                }
+                if let Some(ext_str) = extract_yaml_field(fm, "file_extensions").or(extract_yaml_field(fm, "file_types")) {
+                    file_extensions = Some(ext_str.split(',').map(|s| s.trim().to_string()).collect());
+                }
+                if let Some(pri_str) = extract_yaml_field(fm, "priority") {
+                    priority = pri_str.parse().unwrap_or(0);
+                }
+                if let Some(tool_str) = extract_yaml_field(fm, "allowed_tools").or(extract_yaml_field(fm, "allowedTools")) {
+                    allowed_tools = Some(tool_str.split(',').map(|s| s.trim().to_string()).collect());
+                }
+            }
+        } else {
+            let first_line = content.lines().next().unwrap_or(dir_name);
+            description = first_line.trim_start_matches('#').trim().to_string();
+        }
+
+        Some(SkillMeta {
+            name,
+            description,
+            version,
+            enabled: true,
+            builtin,
+            id,
+            command,
+            regex_patterns,
+            file_extensions,
+            priority,
+            allowed_tools,
+        })
     }
 }
 
@@ -264,6 +460,12 @@ pub async fn install_skill_from_url(url: &str) -> Result<SkillMeta, String> {
         version: extract_yaml_field(&content, "version").unwrap_or_else(|| "0.1.0".into()),
         enabled: true,
         builtin: false,
+        id: None,
+        command: None,
+        regex_patterns: None,
+        file_extensions: None,
+        priority: 0,
+        allowed_tools: None,
     })
 }
 
@@ -279,9 +481,10 @@ pub fn global_skills() -> &'static SkillManager { &SKILL_MANAGER }
 
 /// 内置 Skill 定义
 fn builtin_skills() -> Vec<(&'static str, &'static str)> {
-    vec![(
-        "excel-automation",
-        r#"---
+    vec![
+        (
+            "excel-automation",
+            r#"---
 name: excel-automation
 description: 使用 Python 自动化处理 Excel 文件（.xlsx / .xls / .csv）
 version: "1.0.2"
@@ -344,5 +547,184 @@ df.to_excel('输出.xlsx', index=False)
 - **不要**用 `write_file` 保存 Python 脚本文件，直接用 `run_command` 执行内联 Python 代码
 - 执行 Python 时使用 `python -c "..."` 格式，不要生成临时 .py 文件
 "#,
-    )]
+        ),
+        (
+            "office-charts",
+            r#"---
+name: office-charts
+description: 数据可视化图表自动生成技能 (Bar, Line, Pie, Doughnut)
+version: "1.0.0"
+builtin: true
+---
+
+# 数据可视化图表生成规范
+
+当你需要展示数据对比、趋势、比例等分析结果时，除了文字描述，你必须在回答的末尾使用 ```chart-data 代码块输出结构化的 JSON 数据，以供前端渲染为交互式图表。
+
+## 格式规范
+
+```chart-data
+{
+  "type": "bar" | "line" | "pie" | "doughnut",
+  "title": "图表标题",
+  "labels": ["标签1", "标签2", "标签3", ...],
+  "datasets": [
+    {
+      "label": "数据集名称",
+      "data": [数值1, 数值2, 数值3, ...]
+    }
+  ]
+}
+```
+
+## 注意事项
+- datasets 中可以包含多个数据集（折线图、柱状图等多系列展示）。
+- 数值必须为纯数字，不能包含单位（单位应写在标题或数据标签中）。
+- 图表数据生成后应在文字中进行简单的数据解读。
+"#,
+        ),
+        (
+            "office-documents",
+            r#"---
+name: office-documents
+description: 自动排版并生成 Word (.docx) 和 PPT (.pptx) 文档技能
+version: "1.0.0"
+builtin: true
+---
+
+# 智能文档与幻灯片生成规范
+
+当你为用户梳理好文章大纲、报告大纲、或者PPT结构后，你可以通过输出 ```document-data 代码块以 JSON 格式提供结构化数据，前端会自动渲染“智能文档生成器”卡片，允许用户一键下载 Word 或 PPT。
+
+## 格式规范
+
+```document-data
+{
+  "document_type": "docx" | "pptx",
+  "title": "文档或演示文稿标题",
+  "sections": [
+    {
+      "heading": "章节/幻灯片标题",
+      "content": "章节正文内容 / 幻灯片要点内容",
+      "table": [
+        ["表头1", "表头2", ...],
+        ["单元格A1", "单元格A2", ...],
+        ...
+      ]
+    }
+  ]
+}
+```
+
+## 章节分配规则
+- 对于 docx：每个 section 会生成一级标题，正文及表格。
+- 对于 pptx：每个 section 会生成一张幻灯片，其中 heading 为标题，content 为左侧要点文字，table 为右侧数据表。
+"#,
+        ),
+        (
+            "office-polishing",
+            r#"---
+name: office-polishing
+description: 商务与政务公文排版与写作风格优化规范
+version: "1.0.0"
+builtin: true
+---
+
+# 公文写作与润色规范
+
+在协助用户起草公文、信函、会议纪要等办公文书时，请严格遵守以下规范：
+
+## 写作风格与语气
+- **公文风格**：客观、严谨、得体、措辞严密。避免口语化表达和抒情色彩。
+- **商务风格**：礼貌、专业、高效、重点突出。
+- **纪要风格**：结构化、要点分明，必须包含“会议背景”、“议决事项”、“待办工作”。
+
+## 层次排版原则
+- 层次分明：建议使用“一、”、“（一）”、“1.”、“（1）”四级结构。
+- 重点加粗：对于核心结论和待办人，进行加粗处理。
+- 清爽简洁：正文段落之间保持适当空行，使用条目化（Bullet points）列出待办项。
+"#,
+        ),
+    ]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_skills_scoring_and_allowed_tools() {
+        let dir = std::env::temp_dir().join(format!(
+            "crosschat_test_skills_{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mgr = SkillManager { skills_dir: dir.clone() };
+
+        let skill1_content = r#"---
+name: test-python-skill
+description: Python auto skill
+version: "1.0.0"
+priority: 10
+command: "/run-py"
+regex_patterns: "import .*"
+file_extensions: ".py"
+allowed_tools: "run_python, read_file"
+---
+# Test python skill content
+"#;
+
+        let skill2_content = r#"---
+name: test-general-skill
+description: General skill
+version: "1.0.0"
+priority: 5
+file_extensions: ".txt"
+allowed_tools: "read_file, write_file"
+---
+# Test general skill content
+"#;
+
+        mgr.install_builtin_skill("test-python-skill", skill1_content).unwrap();
+        mgr.install_builtin_skill("test-general-skill", skill2_content).unwrap();
+
+        // 1. Explicit mention trigger
+        let (ctx, allowed) = mgr.get_activated_skills_context("please run @test-python-skill now", &[]);
+        assert!(ctx.is_some());
+        let ctx_str = ctx.unwrap();
+        assert!(ctx_str.contains("test-python-skill"));
+        let allowed_list = allowed.unwrap();
+        assert!(allowed_list.contains(&"run_python".to_string()));
+        assert!(allowed_list.contains(&"read_file".to_string()));
+        assert_eq!(allowed_list.len(), 2);
+
+        // 2. Command trigger
+        let (ctx, _allowed) = mgr.get_activated_skills_context("/run-py hello", &[]);
+        assert!(ctx.is_some());
+        assert!(ctx.unwrap().contains("test-python-skill"));
+
+        // 3. Regex pattern match trigger
+        let (ctx, _allowed) = mgr.get_activated_skills_context("please write import math code", &[]);
+        assert!(ctx.is_some());
+        assert!(ctx.unwrap().contains("test-python-skill"));
+
+        // 4. File extension match trigger
+        let (ctx, _allowed) = mgr.get_activated_skills_context("work on this", &["main.py".to_string()]);
+        assert!(ctx.is_some());
+        assert!(ctx.unwrap().contains("test-python-skill"));
+
+        // 5. Multiple skills and union of allowed_tools
+        let (ctx, allowed) = mgr.get_activated_skills_context("please run @test-python-skill and @test-general-skill", &[]);
+        assert!(ctx.is_some());
+        let allowed_list = allowed.unwrap();
+        assert!(allowed_list.contains(&"run_python".to_string()));
+        assert!(allowed_list.contains(&"read_file".to_string()));
+        assert!(allowed_list.contains(&"write_file".to_string()));
+        assert_eq!(allowed_list.len(), 3);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

@@ -18,6 +18,30 @@ pub struct McpServerConfig {
     pub enabled: bool,
     #[serde(default)]
     pub version: String,
+    #[serde(default)]
+    pub trust_scope: Option<String>, // "user" or "workspace"
+    #[serde(default)]
+    pub trusted_workspace_roots: Option<Vec<String>>,
+}
+
+/// 校验 MCP 服务器是否对当前工作区可信
+pub fn is_mcp_server_trusted(cfg: &McpServerConfig, current_workspace: &str) -> bool {
+    let scope = cfg.trust_scope.as_deref().unwrap_or("user");
+    if scope == "user" || current_workspace.is_empty() {
+        return true;
+    }
+    if scope == "workspace" {
+        if let Some(roots) = &cfg.trusted_workspace_roots {
+            for root in roots {
+                let root_path = std::path::Path::new(root);
+                let ws_path = std::path::Path::new(current_workspace);
+                if ws_path.starts_with(root_path) {
+                    return true;
+                }
+            }
+        }
+    }
+    false
 }
 
 /// MCP 工具缓存条目
@@ -145,8 +169,8 @@ impl McpManager {
         self.configs.lock().await.values().cloned().collect()
     }
 
-    /// 获取所有已启用 MCP 服务器的工具定义
-    pub async fn get_all_tools(&self) -> Vec<ToolDefinition> {
+    /// 获取所有已启用且授信的 MCP 服务器工具定义
+    pub async fn get_all_tools(&self, work_dir: &str) -> Vec<ToolDefinition> {
         let configs = self.configs.lock().await.clone();
         let mut all_tools = Vec::new();
 
@@ -157,6 +181,12 @@ impl McpManager {
             
             if !cfg.enabled {
                 eprintln!("[MCP] 跳过已禁用的服务器: {}", cfg.name);
+                continue;
+            }
+
+            // 校验沙箱可信作用域 (Trust Scope Check)
+            if !is_mcp_server_trusted(cfg, work_dir) {
+                eprintln!("[MCP] 跳过未授权的工作区服务器: {}", cfg.name);
                 continue;
             }
 

@@ -70,6 +70,7 @@ export async function executeCommand(input: string): Promise<string | undefined>
     const result = await cmd.handler();
     return result ?? "";
   } catch (e) {
-    return `命令执行失败: ${e}`;
+    console.error(`[slashCommands] 命令 '/${cmdName}' 执行失败:`, e);
+    return `命令执行失败: ${e instanceof Error ? e.message : String(e)}`;
   }
 }

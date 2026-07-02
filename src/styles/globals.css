@@ -4,46 +4,77 @@
 @variant dark (&:where(.dark, .dark *));
 
 /* === 设计系统 v2.0 === */
-/* 现代化设计：渐变、毛玻璃、彩色阴影 */
+/* 现代化设计：渐变、毛玻璃、深浅色令牌系统 */
+
+:root {
+  /* Obsidian-Indigo Theme - Light Mode */
+  --ds-bg-canvas: #FAF9FB;          /* Elegant, extremely clean lavender-tinted white */
+  --ds-bg-main: #F2F1F6;            /* Soft lavender-grey */
+  --ds-surface-card: rgba(255, 255, 255, 0.82); /* Translucent glassy white */
+  --ds-surface-elevated: #ffffff;   /* Pure white */
+  --ds-accent: #5F5CE5;             /* Refined vibrant indigo */
+  --ds-border: rgba(95, 92, 229, 0.08); /* Indigo-hinted border */
+  --ds-success: #10B981;            /* Emerald */
+  --ds-danger: #EF4444;             /* Rose red */
+  --ds-skill: #8B5CF6;              /* Violet */
+  --ds-muted: #64748B;              /* Slate-500 */
+  --ds-text-primary: #1E293B;       /* Slate-800 */
+  --ds-text-secondary: #475569;     /* Slate-600 */
+  --ds-hover: rgba(95, 92, 229, 0.05);   /* Hover tint */
+  --ds-selected: rgba(95, 92, 229, 0.1); /* Selected tint */
+}
+
+.dark {
+  /* Deep Blue Theme - Dark Mode */
+  --ds-bg-canvas: #060B24;          /* Midnight ocean navy */
+  --ds-bg-main: #0B132B;            /* Deep space sapphire blue */
+  --ds-surface-card: rgba(28, 37, 65, 0.65); /* Translucent sapphire steel-blue card */
+  --ds-surface-elevated: #1C2541;   /* Rich navy elevated surface */
+  --ds-accent: #38BDF8;             /* Vibrant sky blue / cyan glow */
+  --ds-border: rgba(56, 189, 248, 0.15); /* Cyan-tinted glowing border */
+  --ds-success: #34D399;            /* Mint green */
+  --ds-danger: #F87171;             /* Bright rose red */
+  --ds-skill: #A78BFA;              /* Bright lavender */
+  --ds-muted: #8E9AAF;              /* Soft slate-blue muted text */
+  --ds-text-primary: #F1F5F9;       /* Slate-100 */
+  --ds-text-secondary: #CBD5E1;     /* Slate-300 */
+  --ds-hover: rgba(56, 189, 248, 0.08);   /* Hover tint with cyan glow */
+  --ds-selected: rgba(56, 189, 248, 0.15); /* Selected tint with cyan glow */
+}
 
 @theme {
+  /* 映射新设计令牌至 Tailwind v4 实用类 */
+  --color-ds-bg-canvas: var(--ds-bg-canvas);
+  --color-ds-bg-main: var(--ds-bg-main);
+  --color-ds-surface-card: var(--ds-surface-card);
+  --color-ds-surface-elevated: var(--ds-surface-elevated);
+  --color-ds-accent: var(--ds-accent);
+  --color-ds-border: var(--ds-border);
+  --color-ds-success: var(--ds-success);
+  --color-ds-danger: var(--ds-danger);
+  --color-ds-skill: var(--ds-skill);
+  --color-ds-muted: var(--ds-muted);
+  --color-ds-text-primary: var(--ds-text-primary);
+  --color-ds-text-secondary: var(--ds-text-secondary);
+  --color-ds-hover: var(--ds-hover);
+  --color-ds-selected: var(--ds-selected);
+
   /* 品牌色 - 紫蓝渐变 */
-  --color-brand-purple-500: #8B5CF6;
-  --color-brand-purple-600: #7C3AED;
-  --color-brand-blue-500: #6366F1;
-  --color-brand-blue-600: #4F46E5;
-  
-  /* 背景色 */
-  --color-bg-primary: #FAFAFA;
-  --color-bg-secondary: #FFFFFF;
-  --color-bg-elevated: #FFFFFF;
-  --color-bg-primary-dark: #0A0A0A;
-  --color-bg-secondary-dark: #1A1A1A;
-  --color-bg-elevated-dark: #1F1F1F;
-  
-  /* 文字色 */
-  --color-text-primary: #18181B;
-  --color-text-secondary: #52525B;
-  --color-text-tertiary: #A1A1AA;
-  --color-text-primary-dark: #FAFAFA;
-  --color-text-secondary-dark: #A1A1AA;
-  --color-text-tertiary-dark: #52525B;
-  
-  /* 边框色 */
-  --color-border-primary: #E4E4E7;
-  --color-border-primary-dark: #27272A;
+  --color-brand-purple-500: #A78BFA;
+  --color-brand-purple-600: #8B5CF6;
+  --color-brand-blue-500: #818CF8;
+  --color-brand-blue-600: #6366F1;
   
   /* 旧版兼容 */
-  --color-accent: #64748b;
-  --color-accent-light: #94a3b8;
-  --color-surface: #fafaf9;
-  --color-bubble-user: #475569;
-  --color-bubble-ai: #f4f4f5;
-  --color-bubble-ai-dark: #27272a;
-  --color-thinking: #fef3c7;
-  --color-thinking-dark: #292524;
-  --color-thinking-text: #92400e;
-  --color-thinking-text-dark: #fcd34d;
+  --color-accent: var(--ds-accent);
+  --color-surface: var(--ds-bg-main);
+  --color-bubble-user: #6366F1;
+  --color-bubble-ai: var(--ds-surface-card);
+  --color-bubble-ai-dark: var(--ds-surface-card);
+  --color-thinking: rgba(245, 158, 11, 0.05);
+  --color-thinking-dark: rgba(245, 158, 11, 0.04);
+  --color-thinking-text: #B45309;
+  --color-thinking-text-dark: #FBBF24;
 }
 
 /* === 动画系统 === */
@@ -139,6 +170,15 @@
   -moz-osx-font-smoothing: grayscale;
 }
 
+/* 确保 textarea/input 在暗色模式下文字可见 */
+textarea, input[type="text"], input[type="password"], input[type="email"] {
+  color: var(--ds-text-primary);
+}
+
+textarea::placeholder, input::placeholder {
+  color: var(--ds-muted);
+}
+
 /* 滚动条 — 暗色适配，默认隐藏悬停显示 */
 .chat-scrollbar {
   scrollbar-width: thin;
@@ -186,15 +226,16 @@
 
 /* Markdown 代码块 */
 .prose pre {
-  border-radius: 10px;
+  border-radius: 12px;
   overflow-x: auto;
-  background: #f8fafc !important;
-  border: 1px solid #e2e8f0;
+  background: rgba(15, 23, 42, 0.03) !important;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  padding: 1rem;
 }
 
 .dark .prose pre {
-  background: #1e293b !important;
-  border-color: #334155;
+  background: rgba(0, 0, 0, 0.2) !important;
+  border-color: rgba(129, 140, 248, 0.15);
 }
 
 .prose code {
@@ -235,12 +276,61 @@
   height: 0;
   border-style: solid;
   border-width: 0 12px 12px 0;
-  border-color: transparent #FFFFFF transparent transparent;
-  filter: drop-shadow(-1px 2px 2px rgba(0, 0, 0, 0.08));
+  border-color: transparent rgba(255, 255, 255, 0.82) transparent transparent;
+  filter: drop-shadow(-1px 2px 2px rgba(0, 0, 0, 0.04));
 }
 
 /* 暗色模式 - AI 消息气泡尾巴 */
 .dark .message-bubble-assistant::after {
-  border-color: transparent #18181B transparent transparent;
-  filter: drop-shadow(-1px 2px 2px rgba(0, 0, 0, 0.3));
+  border-color: transparent rgba(20, 24, 38, 0.72) transparent transparent;
+  filter: drop-shadow(-1px 2px 2px rgba(0, 0, 0, 0.2));
 }
+
+/* === 桌面 Agent 自定义样式 === */
+
+/* 流式渐变 Shimmer 效果 (用于取代字符抖动的打字机动效) */
+@keyframes shinyText {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.ds-shiny-text {
+  background: linear-gradient(
+    90deg,
+    var(--ds-accent) 0%,
+    #a855f7 25%,
+    var(--ds-accent) 50%,
+    #a855f7 75%,
+    var(--ds-accent) 100%
+  );
+  background-size: 200% auto;
+  color: transparent;
+  -webkit-background-clip: text;
+  background-clip: text;
+  animation: shinyText 2.4s linear infinite;
+}
+
+/* 顶部栏拖拽支持 */
+.topbar-drag {
+  -webkit-app-region: drag;
+}
+
+.ds-no-drag {
+  -webkit-app-region: no-drag;
+}
+
+/* 统一键盘导航焦点样式 */
+.ds-focus-ring:focus-visible {
+  outline: none;
+  border-color: var(--ds-accent) !important;
+  box-shadow: 0 0 0 1px rgba(0, 136, 255, 0.3);
+}
+
+.dark .ds-focus-ring:focus-visible {
+  box-shadow: 0 0 0 1px rgba(51, 156, 255, 0.3);
+}
+

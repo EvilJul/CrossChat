@@ -1,4 +1,5 @@
 import { registerCommand, getCommands } from "./slashCommands";
+import { listSkills } from "./tauri-bridge";
 
 export function setupBuiltinCommands(deps: {
   clearMessages: () => void;
@@ -108,10 +109,9 @@ export function setupBuiltinCommands(deps: {
     description: "列出已安装的 Skills 扩展",
     handler: async () => {
       try {
-        const { listSkills } = await import("./tauri-bridge");
         const skills = await listSkills();
 
-        if (skills.length === 0) {
+        if (!skills || skills.length === 0) {
           return "暂无已安装的 Skills。用户可输入 `install_skill <GitHub URL>` 安装，或手动放入 `~/.crosschat/skills/` 目录。";
         }
 
@@ -133,8 +133,9 @@ export function setupBuiltinCommands(deps: {
         }
 
         return lines.join("\n");
-      } catch {
-        return "获取 Skills 失败。";
+      } catch (e) {
+        console.error("[/skills] 获取 Skills 失败:", e);
+        return `获取 Skills 失败: ${e instanceof Error ? e.message : String(e)}`;
       }
     },
   });

@@ -46,6 +46,6 @@ pub async fn list_mcp_servers() -> Result<Vec<McpServerConfig>, String> {
 /// 刷新 MCP 工具列表（清缓存重发现）
 #[tauri::command]
 pub async fn refresh_mcp_tools() -> Result<usize, String> {
-    let tools = global_mcp().get_all_tools().await;
+    let tools = global_mcp().get_all_tools("").await;
     Ok(tools.len())
 }

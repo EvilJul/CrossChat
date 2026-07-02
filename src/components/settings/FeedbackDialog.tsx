@@ -47,7 +47,7 @@ export default function FeedbackDialog() {
     <Dialog.Root open={feedbackOpen} onOpenChange={setFeedbackOpen}>
       <Dialog.Trigger asChild>
         <button
-          className="text-xs text-zinc-400 hover:text-amber-500 dark:hover:text-amber-400 bg-zinc-100 dark:bg-zinc-800 hover:bg-amber-50 dark:hover:bg-amber-900/20 px-2.5 py-1.5 rounded-lg transition-colors flex items-center gap-1"
+          className="text-xs text-ds-muted hover:text-ds-accent bg-ds-bg-main hover:bg-ds-hover px-2.5 py-1.5 rounded-lg transition-colors flex items-center gap-1"
           title="反馈建议 (测试阶段)"
         >
           <Mail className="w-3 h-3" />
@@ -57,19 +57,19 @@ export default function FeedbackDialog() {
 
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50" />
-        <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-white dark:bg-zinc-900 rounded-2xl shadow-2xl w-[420px] z-50 border border-zinc-200 dark:border-zinc-700">
-          <div className="flex items-center justify-between px-5 py-4 border-b border-zinc-200 dark:border-zinc-700">
-            <Dialog.Title className="text-sm font-semibold text-zinc-900 dark:text-zinc-100 flex items-center gap-2">
-              <Mail className="w-4 h-4 text-amber-500" />
+        <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-ds-surface-card backdrop-blur-xl rounded-2xl shadow-2xl w-[420px] z-50 border border-ds-border text-ds-text-primary">
+          <div className="flex items-center justify-between px-5 py-4 border-b border-ds-border">
+            <Dialog.Title className="text-sm font-semibold text-ds-text-primary flex items-center gap-2">
+              <Mail className="w-4 h-4 text-ds-accent" />
               用户反馈
             </Dialog.Title>
-            <Dialog.Close className="p-1 rounded-lg text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300">
+            <Dialog.Close className="p-1 rounded-lg text-ds-muted hover:text-ds-text-primary">
               <X className="w-4 h-4" />
             </Dialog.Close>
           </div>
 
           <div className="p-5 space-y-3">
-            <p className="text-xs text-zinc-400">
+            <p className="text-xs text-ds-muted">
               你的反馈将直接发送到开发者邮箱。包括建议、bug 报告、功能需求等。（测试阶段专属功能）
             </p>
 
@@ -78,13 +78,13 @@ export default function FeedbackDialog() {
               onChange={(e) => setFeedback(e.target.value)}
               placeholder="请描述你的问题、建议或反馈..."
               rows={5}
-              className="w-full resize-none rounded-xl border border-zinc-300 dark:border-zinc-600 bg-zinc-50 dark:bg-zinc-800 px-4 py-3 text-sm text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-amber-500/50"
+              className="w-full resize-none rounded-xl border border-ds-border bg-ds-surface-elevated px-4 py-3 text-sm text-ds-text-primary placeholder:text-ds-muted focus:outline-none focus:ring-2 focus:ring-ds-accent/30 focus:border-ds-accent"
             />
 
             <button
               onClick={handleSend}
               disabled={!feedback.trim() || sending}
-              className="w-full py-2 rounded-xl bg-amber-500 hover:bg-amber-600 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm flex items-center justify-center gap-2 transition-colors"
+              className="w-full py-2 rounded-xl bg-ds-accent hover:opacity-95 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm flex items-center justify-center gap-2 transition-all duration-200 shadow-md shadow-ds-accent/20"
             >
               {sent ? (
                 <>已发送！</>
@@ -99,7 +99,7 @@ export default function FeedbackDialog() {
             </button>
 
             {sent && (
-              <p className="text-xs text-green-600 dark:text-green-400 text-center">
+              <p className="text-xs text-ds-success text-center">
                 邮件客户端已打开，请在邮件中点击发送完成反馈
               </p>
             )}

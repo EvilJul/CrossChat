@@ -34,6 +34,11 @@ src-tauri/gen
 # Claude local config
 .claude
 
+# 其他 AI 工具本地目录（索引/缓存/依赖，不提交）
+.codegraph
+.codex
+.opencode
+
 # 本地 Cargo 配置（ARM64 Windows 环境变量覆盖，不适用其他平台）
 src-tauri/.cargo
 
