@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use std::path::{Component, Path, PathBuf};
 
+use crate::error::AppError;
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct FileEntry {
     pub name: String,
@@ -137,31 +139,41 @@ fn is_path_forbidden(path: &Path) -> bool {
     false
 }
 
-/// 对外统一的校验入口：命中黑名单时返回中文错误。
-fn ensure_path_allowed(path: &Path) -> Result<(), String> {
+/// 对外统一的校验入口：命中黑名单时返回受保护路径错误。
+fn ensure_path_allowed(path: &Path) -> Result<(), AppError> {
     if is_path_forbidden(path) {
-        return Err("拒绝访问受保护路径".to_string());
+        return Err(AppError::Forbidden("拒绝访问受保护路径".to_string()));
+    }
+    Ok(())
+}
+
+/// 校验路径字符串去空格后非空；为空返回 `InvalidInput`。
+/// 用于挡住前端传入的空路径 / 纯空白路径。
+fn ensure_path_non_empty(path: &str) -> Result<(), AppError> {
+    if path.trim().is_empty() {
+        return Err(AppError::InvalidInput("路径不能为空".to_string()));
     }
     Ok(())
 }
 
 #[tauri::command]
-pub async fn list_directory(path: String) -> Result<Vec<FileEntry>, String> {
+pub async fn list_directory(path: String) -> Result<Vec<FileEntry>, AppError> {
+    ensure_path_non_empty(&path)?;
     let dir = PathBuf::from(&path);
     ensure_path_allowed(&dir)?;
     if !dir.exists() {
-        return Err(format!("路径不存在: {}", path));
+        return Err(AppError::NotFound(format!("路径不存在: {}", path)));
     }
     if !dir.is_dir() {
-        return Err(format!("不是目录: {}", path));
+        return Err(AppError::InvalidInput(format!("不是目录: {}", path)));
     }
 
     let mut entries = Vec::new();
-    let read_dir = std::fs::read_dir(&dir).map_err(|e| format!("无法读取目录: {}", e))?;
+    let read_dir = std::fs::read_dir(&dir).map_err(|e| AppError::Io(format!("无法读取目录: {}", e)))?;
 
     for entry in read_dir {
-        let entry = entry.map_err(|e| format!("读取条目失败: {}", e))?;
-        let metadata = entry.metadata().map_err(|e| format!("获取元数据失败: {}", e))?;
+        let entry = entry.map_err(|e| AppError::Io(format!("读取条目失败: {}", e)))?;
+        let metadata = entry.metadata().map_err(|e| AppError::Io(format!("获取元数据失败: {}", e)))?;
         let name = entry.file_name().to_string_lossy().to_string();
 
         if name.starts_with('.') {
@@ -181,34 +193,36 @@ pub async fn list_directory(path: String) -> Result<Vec<FileEntry>, String> {
 }
 
 #[tauri::command]
-pub async fn read_file_content(path: String) -> Result<String, String> {
+pub async fn read_file_content(path: String) -> Result<String, AppError> {
+    ensure_path_non_empty(&path)?;
     let file_path = PathBuf::from(&path);
     ensure_path_allowed(&file_path)?;
     if !file_path.exists() {
-        return Err(format!("文件不存在: {}", path));
+        return Err(AppError::NotFound(format!("文件不存在: {}", path)));
     }
     if file_path.is_dir() {
-        return Err(format!("路径是目录，不是文件: {}", path));
+        return Err(AppError::InvalidInput(format!("路径是目录，不是文件: {}", path)));
     }
-    let metadata = file_path.metadata().map_err(|e| format!("读取元数据失败: {}", e))?;
+    let metadata = file_path.metadata().map_err(|e| AppError::Io(format!("读取元数据失败: {}", e)))?;
     if metadata.len() > 10_485_760 {
-        return Err("文件过大（超过 10MB），无法预览".to_string());
+        return Err(AppError::InvalidInput("文件过大（超过 10MB），无法预览".to_string()));
     }
-    std::fs::read_to_string(&file_path).map_err(|e| format!("读取文件失败: {}", e))
+    std::fs::read_to_string(&file_path).map_err(|e| AppError::Io(format!("读取文件失败: {}", e)))
 }
 
 #[tauri::command]
-pub async fn get_file_preview_info(path: String) -> Result<FilePreviewInfo, String> {
+pub async fn get_file_preview_info(path: String) -> Result<FilePreviewInfo, AppError> {
+    ensure_path_non_empty(&path)?;
     let file_path = PathBuf::from(&path);
     ensure_path_allowed(&file_path)?;
     if !file_path.exists() {
-        return Err(format!("文件不存在: {}", path));
+        return Err(AppError::NotFound(format!("文件不存在: {}", path)));
     }
     if file_path.is_dir() {
-        return Err(format!("路径是目录，不是文件: {}", path));
+        return Err(AppError::InvalidInput(format!("路径是目录，不是文件: {}", path)));
     }
 
-    let metadata = file_path.metadata().map_err(|e| format!("读取元数据失败: {}", e))?;
+    let metadata = file_path.metadata().map_err(|e| AppError::Io(format!("读取元数据失败: {}", e)))?;
     let name = file_path.file_name()
         .map(|n| n.to_string_lossy().to_string())
         .unwrap_or_default();
@@ -238,41 +252,44 @@ pub async fn get_file_preview_info(path: String) -> Result<FilePreviewInfo, Stri
 }
 
 #[tauri::command]
-pub async fn read_file_bytes(path: String) -> Result<Vec<u8>, String> {
+pub async fn read_file_bytes(path: String) -> Result<Vec<u8>, AppError> {
+    ensure_path_non_empty(&path)?;
     let file_path = PathBuf::from(&path);
     ensure_path_allowed(&file_path)?;
     if !file_path.exists() {
-        return Err(format!("文件不存在: {}", path));
+        return Err(AppError::NotFound(format!("文件不存在: {}", path)));
     }
     if file_path.is_dir() {
-        return Err(format!("路径是目录，不是文件: {}", path));
+        return Err(AppError::InvalidInput(format!("路径是目录，不是文件: {}", path)));
     }
-    let metadata = file_path.metadata().map_err(|e| format!("读取元数据失败: {}", e))?;
+    let metadata = file_path.metadata().map_err(|e| AppError::Io(format!("读取元数据失败: {}", e)))?;
     if metadata.len() > 52_428_800 {
-        return Err("文件过大（超过 50MB）".to_string());
+        return Err(AppError::InvalidInput("文件过大（超过 50MB）".to_string()));
     }
-    std::fs::read(&file_path).map_err(|e| format!("读取文件失败: {}", e))
+    std::fs::read(&file_path).map_err(|e| AppError::Io(format!("读取文件失败: {}", e)))
 }
 
 #[tauri::command]
-pub async fn write_file_bytes(path: String, bytes: Vec<u8>) -> Result<(), String> {
+pub async fn write_file_bytes(path: String, bytes: Vec<u8>) -> Result<(), AppError> {
+    ensure_path_non_empty(&path)?;
     let file_path = PathBuf::from(&path);
     ensure_path_allowed(&file_path)?;
     if let Some(parent) = file_path.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| format!("创建父目录失败: {}", e))?;
+        std::fs::create_dir_all(parent).map_err(|e| AppError::Io(format!("创建父目录失败: {}", e)))?;
     }
-    std::fs::write(&file_path, bytes).map_err(|e| format!("写入文件失败: {}", e))
+    std::fs::write(&file_path, bytes).map_err(|e| AppError::Io(format!("写入文件失败: {}", e)))
 }
 
 #[tauri::command]
-pub async fn delete_file_or_dir(path: String) -> Result<String, String> {
+pub async fn delete_file_or_dir(path: String) -> Result<String, AppError> {
+    ensure_path_non_empty(&path)?;
     let p = PathBuf::from(&path);
     ensure_path_allowed(&p)?;
-    if !p.exists() { return Err("文件不存在".into()); }
+    if !p.exists() { return Err(AppError::NotFound("文件不存在".into())); }
     if p.is_dir() {
-        std::fs::remove_dir_all(&p).map_err(|e| format!("删除目录失败: {}", e))?;
+        std::fs::remove_dir_all(&p).map_err(|e| AppError::Io(format!("删除目录失败: {}", e)))?;
     } else {
-        std::fs::remove_file(&p).map_err(|e| format!("删除文件失败: {}", e))?;
+        std::fs::remove_file(&p).map_err(|e| AppError::Io(format!("删除文件失败: {}", e)))?;
     }
     let name = p.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
     Ok(format!("已删除: {}", name))

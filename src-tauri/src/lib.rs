@@ -4,6 +4,7 @@ mod adapters;
 mod application;
 mod migration;
 mod commands;
+mod error;
 
 use std::sync::Arc;
 use tauri::Manager;

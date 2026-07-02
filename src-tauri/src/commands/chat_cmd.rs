@@ -4,13 +4,31 @@ use tauri::State;
 
 use crate::adapters::store::SqliteThreadStore;
 use crate::core::models::{Turn, TurnItem};
+use crate::error::AppError;
 use crate::ports::ThreadStore;
+
+/// 校验 API base URL：去空格后非空，且以 `http://` 或 `https://` 开头。
+/// 用简单前缀判断，不引入 regex/url crate。
+fn validate_api_base(api_base: &str) -> Result<(), AppError> {
+    let trimmed = api_base.trim();
+    if trimmed.is_empty() {
+        return Err(AppError::InvalidInput("API 地址不能为空".to_string()));
+    }
+    if !(trimmed.starts_with("http://") || trimmed.starts_with("https://")) {
+        return Err(AppError::InvalidInput(
+            "API 地址必须以 http:// 或 https:// 开头".to_string(),
+        ));
+    }
+    Ok(())
+}
 
 #[tauri::command]
 pub async fn fetch_models(
     api_key: String,
     api_base: String,
-) -> Result<Vec<String>, String> {
+) -> Result<Vec<String>, AppError> {
+    validate_api_base(&api_base)?;
+
     let base = api_base.trim_end_matches('/');
     let url = format!("{}/models", base);
 
@@ -20,17 +38,20 @@ pub async fn fetch_models(
         .header("Authorization", format!("Bearer {}", api_key))
         .send()
         .await
-        .map_err(|e| format!("请求失败: {}", e))?;
+        .map_err(|e| AppError::Network(format!("请求失败: {}", e)))?;
 
     if !resp.status().is_success() {
         let text = resp.text().await.unwrap_or_default();
-        return Err(format!("API 错误: {}", text));
+        return Err(AppError::Api(format!("API 错误: {}", text)));
     }
 
-    let data: serde_json::Value = resp.json().await.map_err(|e| format!("解析响应失败: {}", e))?;
+    let data: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| AppError::Parse(format!("解析响应失败: {}", e)))?;
     let models = data["data"]
         .as_array()
-        .ok_or("响应格式错误: 未找到 data 字段")?
+        .ok_or_else(|| AppError::Parse("响应格式错误: 未找到 data 字段".to_string()))?
         .iter()
         .filter_map(|m| m["id"].as_str().map(String::from))
         .collect();
@@ -46,8 +67,20 @@ pub async fn send_chat_message(
     api_key: String,
     model: String,
     api_base: String,
-) -> Result<String, String> {
-    let thread = store.get_thread(&session_id).await.map_err(|e| e.to_string())?;
+) -> Result<String, AppError> {
+    // 关键输入校验：用户消息非空、API 地址合法、模型名非空。
+    if user_text.trim().is_empty() {
+        return Err(AppError::InvalidInput("消息内容不能为空".to_string()));
+    }
+    validate_api_base(&api_base)?;
+    if model.trim().is_empty() {
+        return Err(AppError::InvalidInput("模型名不能为空".to_string()));
+    }
+
+    let thread = store
+        .get_thread(&session_id)
+        .await
+        .map_err(|e| AppError::Storage(e.to_string()))?;
 
     let turns = store.list_turns(&session_id, 100).await.unwrap_or_default();
 
@@ -95,20 +128,25 @@ pub async fn send_chat_message(
         .json(&body)
         .send()
         .await
-        .map_err(|e| format!("API 请求失败: {}", e))?;
+        .map_err(|e| AppError::Network(format!("API 请求失败: {}", e)))?;
 
     if !resp.status().is_success() {
         let status = resp.status();
         let text = resp.text().await.unwrap_or_default();
-        return Err(format!("API 错误 ({}): {}", status, text));
+        return Err(AppError::Api(format!("API 错误 ({}): {}", status, text)));
     }
 
-    let data: serde_json::Value = resp.json().await.map_err(|e| format!("解析响应失败: {}", e))?;
+    let data: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| AppError::Parse(format!("解析响应失败: {}", e)))?;
 
     let msg = &data["choices"][0]["message"];
     let assistant_text = msg["content"]
         .as_str()
-        .ok_or("API 返回格式错误: 未找到 choices[0].message.content")?
+        .ok_or_else(|| {
+            AppError::Parse("API 返回格式错误: 未找到 choices[0].message.content".to_string())
+        })?
         .to_string();
 
     let reasoning = msg["reasoning_content"].as_str().map(|s| s.to_string());
@@ -141,7 +179,7 @@ pub async fn send_chat_message(
     }
     turn.complete(Default::default());
 
-    store.save_turn(&turn).await.map_err(|e| e.to_string())?;
+    store.save_turn(&turn).await.map_err(|e| AppError::Storage(e.to_string()))?;
 
     let mut updated = thread;
     updated.updated_at = Utc::now();

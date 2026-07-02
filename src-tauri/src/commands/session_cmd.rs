@@ -5,7 +5,16 @@ use tauri::State;
 
 use crate::adapters::store::SqliteThreadStore;
 use crate::core::models::{Thread, ThreadMode, ThreadStatus, Turn, TurnItem};
+use crate::error::AppError;
 use crate::ports::ThreadStore;
+
+/// 校验 id 去空格后非空；为空返回 `InvalidInput`。
+fn ensure_id_non_empty(id: &str) -> Result<(), AppError> {
+    if id.trim().is_empty() {
+        return Err(AppError::InvalidInput("会话 id 不能为空".to_string()));
+    }
+    Ok(())
+}
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct SessionMeta {
@@ -96,20 +105,20 @@ fn turn_item_to_message(item: &TurnItem, ts: u64) -> Option<SessionMessage> {
 pub async fn create_session(
     store: State<'_, Arc<SqliteThreadStore>>,
     title: String,
-) -> Result<SessionMeta, String> {
+) -> Result<SessionMeta, AppError> {
     let thread = Thread::new(title, None, ThreadMode::Chat);
-    store.create_thread(&thread).await.map_err(|e| e.to_string())?;
+    store.create_thread(&thread).await.map_err(|e| AppError::Storage(e.to_string()))?;
     Ok(meta_from_thread(&thread, 0))
 }
 
 #[tauri::command]
 pub async fn list_sessions(
     store: State<'_, Arc<SqliteThreadStore>>,
-) -> Result<Vec<SessionMeta>, String> {
-    let threads = store.list_threads(100, 0).await.map_err(|e| e.to_string())?;
+) -> Result<Vec<SessionMeta>, AppError> {
+    let threads = store.list_threads(100, 0).await.map_err(|e| AppError::Storage(e.to_string()))?;
     let mut metas = Vec::with_capacity(threads.len());
     for thread in &threads {
-        let turns = store.list_turns(&thread.id, 100).await.map_err(|e| e.to_string())?;
+        let turns = store.list_turns(&thread.id, 100).await.map_err(|e| AppError::Storage(e.to_string()))?;
         let count: usize = turns.iter().map(|t| {
             t.items.iter().filter(|i| {
                 matches!(i, TurnItem::UserMessage { .. } | TurnItem::AssistantText { .. })
@@ -124,9 +133,10 @@ pub async fn list_sessions(
 pub async fn get_session(
     store: State<'_, Arc<SqliteThreadStore>>,
     id: String,
-) -> Result<Session, String> {
-    let thread = store.get_thread(&id).await.map_err(|e| e.to_string())?;
-    let turns = store.list_turns(&id, 100).await.map_err(|e| e.to_string())?;
+) -> Result<Session, AppError> {
+    ensure_id_non_empty(&id)?;
+    let thread = store.get_thread(&id).await.map_err(|e| AppError::Storage(e.to_string()))?;
+    let turns = store.list_turns(&id, 100).await.map_err(|e| AppError::Storage(e.to_string()))?;
 
     let mut messages = Vec::new();
     let mut summary = None;
@@ -157,8 +167,9 @@ pub async fn save_messages(
     session_id: String,
     messages: Vec<SessionMessage>,
     summary: Option<String>,
-) -> Result<(), String> {
-    let thread = store.get_thread(&session_id).await.map_err(|e| e.to_string())?;
+) -> Result<(), AppError> {
+    ensure_id_non_empty(&session_id)?;
+    let thread = store.get_thread(&session_id).await.map_err(|e| AppError::Storage(e.to_string()))?;
 
     let _ = store.delete_turns_for_thread(&session_id).await;
 
@@ -193,7 +204,7 @@ pub async fn save_messages(
     }
     turn.complete(Default::default());
 
-    store.save_turn(&turn).await.map_err(|e| e.to_string())?;
+    store.save_turn(&turn).await.map_err(|e| AppError::Storage(e.to_string()))?;
 
     let mut updated = thread;
     updated.updated_at = Utc::now();
@@ -216,8 +227,9 @@ pub async fn save_messages(
 pub async fn delete_session(
     store: State<'_, Arc<SqliteThreadStore>>,
     id: String,
-) -> Result<(), String> {
-    store.delete_thread(&id).await.map_err(|e| e.to_string())
+) -> Result<(), AppError> {
+    ensure_id_non_empty(&id)?;
+    store.delete_thread(&id).await.map_err(|e| AppError::Storage(e.to_string()))
 }
 
 /// 设置会话状态（归档 / 取消归档）。
@@ -228,16 +240,17 @@ pub async fn set_session_status(
     store: State<'_, Arc<SqliteThreadStore>>,
     id: String,
     status: String,
-) -> Result<(), String> {
+) -> Result<(), AppError> {
+    ensure_id_non_empty(&id)?;
     let new_status = match status.as_str() {
         "active" => ThreadStatus::Active,
         "archived" => ThreadStatus::Archived,
-        other => return Err(format!("非法的会话状态: {}", other)),
+        other => return Err(AppError::InvalidInput(format!("非法的会话状态: {}", other))),
     };
-    let mut thread = store.get_thread(&id).await.map_err(|e| e.to_string())?;
+    let mut thread = store.get_thread(&id).await.map_err(|e| AppError::Storage(e.to_string()))?;
     thread.status = new_status;
     // 保留原 updated_at，不刷新
-    store.update_thread(&thread).await.map_err(|e| e.to_string())
+    store.update_thread(&thread).await.map_err(|e| AppError::Storage(e.to_string()))
 }
 
 /// 重命名会话。title 去首尾空格；为空返回 Err；会更新 updated_at。
@@ -246,15 +259,16 @@ pub async fn rename_session(
     store: State<'_, Arc<SqliteThreadStore>>,
     id: String,
     title: String,
-) -> Result<(), String> {
+) -> Result<(), AppError> {
+    ensure_id_non_empty(&id)?;
     let trimmed = title.trim();
     if trimmed.is_empty() {
-        return Err("标题不能为空".to_string());
+        return Err(AppError::InvalidInput("标题不能为空".to_string()));
     }
-    let mut thread = store.get_thread(&id).await.map_err(|e| e.to_string())?;
+    let mut thread = store.get_thread(&id).await.map_err(|e| AppError::Storage(e.to_string()))?;
     thread.title = trimmed.to_string();
     thread.updated_at = Utc::now();
-    store.update_thread(&thread).await.map_err(|e| e.to_string())
+    store.update_thread(&thread).await.map_err(|e| AppError::Storage(e.to_string()))
 }
 
 /// 置顶 / 取消置顶会话。**不更新 updated_at**（复用原值写回）。
@@ -263,9 +277,10 @@ pub async fn set_session_pinned(
     store: State<'_, Arc<SqliteThreadStore>>,
     id: String,
     pinned: bool,
-) -> Result<(), String> {
-    let mut thread = store.get_thread(&id).await.map_err(|e| e.to_string())?;
+) -> Result<(), AppError> {
+    ensure_id_non_empty(&id)?;
+    let mut thread = store.get_thread(&id).await.map_err(|e| AppError::Storage(e.to_string()))?;
     thread.pinned = pinned;
     // 保留原 updated_at，不刷新
-    store.update_thread(&thread).await.map_err(|e| e.to_string())
+    store.update_thread(&thread).await.map_err(|e| AppError::Storage(e.to_string()))
 }
