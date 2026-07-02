@@ -27,6 +27,10 @@ window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () 
   if (current === "system") applyTheme("system");
 });
 
+// 启动时从 keychain 加载 API Key 到内存镜像（含旧明文 localStorage 迁移）。
+// 异步执行，不阻塞首屏渲染。
+void useSettingsStore.getState().loadCredentials();
+
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
     <ErrorBoundary>

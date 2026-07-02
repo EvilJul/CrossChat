@@ -13,6 +13,7 @@ use commands::file_ops::{
     get_file_preview_info, read_file_bytes, write_file_bytes,
 };
 use commands::chat_cmd::{send_chat_message, fetch_models};
+use commands::keychain_cmd::{set_api_key, get_api_key, delete_api_key};
 use commands::session_cmd::{
     create_session, delete_session, get_session, list_sessions, save_messages,
     set_session_status, rename_session, set_session_pinned,
@@ -85,6 +86,9 @@ pub fn run() {
             rename_session,
             set_session_pinned,
             migrate_data,
+            set_api_key,
+            get_api_key,
+            delete_api_key,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

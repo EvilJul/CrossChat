@@ -44,4 +44,14 @@ rusqlite = { version = "0.32", features = ["bundled"] }
 dirs = "5"
 bytes = "1"
 
+# 系统钥匙串：按平台选择原生后端，保证本机 macOS 只编译 apple-native。
+[target.'cfg(target_os = "macos")'.dependencies]
+keyring = { version = "3", features = ["apple-native"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+keyring = { version = "3", features = ["windows-native"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+keyring = { version = "3", features = ["sync-secret-service", "crypto-rust"] }
+
 
