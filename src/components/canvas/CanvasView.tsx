@@ -2,10 +2,28 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { invoke, Channel } from "@tauri-apps/api/core";
 import * as Dialog from "@radix-ui/react-dialog";
 import { X, Search, Pin, Plus, MoreHorizontal } from "lucide-react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import rehypeHighlight from "rehype-highlight";
+import "highlight.js/styles/atom-one-dark.css";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { useProviderStore } from "../../stores/providerStore";
 import SettingsDialog from "../settings/SettingsDialog";
 import { cn } from "../../lib/cn";
+
+/**
+ * Markdown 渲染组件：AI 回复正文用它渲染（表格/代码高亮/列表等）。
+ * 用 prose 语义类 + 少量 Tailwind 覆盖，深浅色主题自适应。
+ */
+function Markdown({ content }: { content: string }) {
+  return (
+    <div className="md-body text-sm leading-relaxed break-words">
+      <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
+        {content}
+      </ReactMarkdown>
+    </div>
+  );
+}
 
 interface SessionMeta {
   id: string;
@@ -631,11 +649,11 @@ export default function CanvasView() {
               {visibleMessages.map((msg, i) => {
                 if (msg.role === "tool_call" || msg.role === "tool_result") {
                   return (
-                    <div key={i} className="flex justify-center">
-                      <div className="w-full max-w-xl">
+                    <div key={i} className="flex justify-start">
+                      <div className="max-w-[75%] min-w-0">
                         <ToolCallBlock
                           content={msg.content}
-                          toolName={msg.tool_name || (msg.role === "tool_result" ? "结果" : "工具")}
+                          toolName={msg.tool_name || (msg.role === "tool_result" ? "工具结果" : "工具调用")}
                         />
                       </div>
                     </div>
@@ -664,8 +682,12 @@ export default function CanvasView() {
                             ? "bg-ds-selected border-ds-border text-ds-text-secondary"
                             : "bg-ds-surface-card border-ds-border"
                         )}>
+                        {isUser ? (
                           <div className="whitespace-pre-wrap text-sm leading-relaxed">{msg.content}</div>
-                          <div className={cn(
+                        ) : (
+                          <Markdown content={msg.content} />
+                        )}
+                        <div className={cn(
                             "text-[10px] mt-1.5",
                             isUser ? "text-white/60" : "text-ds-muted"
                           )}>
@@ -685,11 +707,9 @@ export default function CanvasView() {
                   {streamShowReason && <ThinkingBlock content={combinedReasoning} />}
                   {streamBody && (
                     <div className="rounded-xl px-4 py-3 shadow-sm border break-words bg-ds-surface-card border-ds-border">
-                      <div className="whitespace-pre-wrap text-sm leading-relaxed">
-                        {streamBody}
-                        {/* 打字机光标 */}
-                        <span className="ml-0.5 inline-block animate-pulse text-ds-accent">▋</span>
-                      </div>
+                      <Markdown content={streamBody} />
+                      {/* 打字机光标 */}
+                      <span className="inline-block animate-pulse text-ds-accent">▋</span>
                       <div className="text-[10px] mt-1.5 text-ds-muted">AI · 正在输入…</div>
                     </div>
                   )}
