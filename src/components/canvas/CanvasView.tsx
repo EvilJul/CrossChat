@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke, Channel } from "@tauri-apps/api/core";
 import * as Dialog from "@radix-ui/react-dialog";
 import { X, Search, Pin, Plus, MoreHorizontal } from "lucide-react";
 import { useSettingsStore } from "../../stores/settingsStore";
@@ -30,6 +30,14 @@ interface Session {
   messages: SessionMessage[];
   summary?: string | null;
 }
+
+// 后端 send_chat_message 通过 Tauri Channel 推送的流式事件（标签式 JSON，camelCase）。
+// delta=正文增量；reasoning=推理增量；done=结束并带完整文本；error=出错。
+type StreamEvent =
+  | { type: "delta"; text: string }
+  | { type: "reasoning"; text: string }
+  | { type: "done"; text: string }
+  | { type: "error"; message: string };
 
 function ThinkingBlock({ content }: { content: string }) {
   const [open, setOpen] = useState(false);
@@ -158,8 +166,16 @@ export default function CanvasView() {
   const [renameTarget, setRenameTarget] = useState<SessionMeta | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [archivedOpen, setArchivedOpen] = useState(false);
+  // 流式接收状态：streaming 标记正在流式；streamText/streamReasoning 用于实时渲染打字机效果。
+  const [streaming, setStreaming] = useState(false);
+  const [streamText, setStreamText] = useState("");
+  const [streamReasoning, setStreamReasoning] = useState("");
   const canvasRef = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  // 与上面两个 state 同步累积；ref 供 done/error 收尾时读取最新值（state 闭包会陈旧）。
+  const streamTextRef = useRef("");
+  const streamReasoningRef = useRef("");
+  const streamErroredRef = useRef(false);
 
   const activeProviderId = useSettingsStore(s => s.activeProviderId);
   const activeModel = useSettingsStore(s => s.activeModel);
@@ -269,6 +285,20 @@ export default function CanvasView() {
     });
   };
 
+  // 出错时把流式已收到的部分固化为一条真实 assistant 消息，避免清空流式状态后内容丢失。
+  // 从 ref 读取（state 闭包会陈旧）；正文与推理都为空则不追加，避免留下空气泡。
+  const preservePartialAsMessage = () => {
+    const t = streamTextRef.current;
+    const r = streamReasoningRef.current;
+    if (!t && !r) return;
+    setMessages(prev => [...prev, {
+      role: "assistant",
+      content: t,
+      thinking: r || null,
+      timestamp: Math.floor(Date.now() / 1000),
+    }]);
+  };
+
   const sendMessage = async () => {
     if (!input.trim() || !activeId || loading) return;
 
@@ -295,26 +325,73 @@ export default function CanvasView() {
     setInput("");
     setLoading(true);
     setError(null);
+    // 重置并开启流式状态
+    setStreaming(true);
+    setStreamText("");
+    setStreamReasoning("");
+    streamTextRef.current = "";
+    streamReasoningRef.current = "";
+    streamErroredRef.current = false;
 
     try {
-      await invoke<string>("send_chat_message", {
+      // 创建 Channel 用于接收流式事件
+      const channel = new Channel<StreamEvent>();
+      channel.onmessage = (ev: StreamEvent) => {
+        if (ev.type === "delta") {
+          // 文本增量：追加到当前 AI 气泡
+          streamTextRef.current += ev.text;
+          setStreamText(streamTextRef.current);
+          scrollToBottom();
+        } else if (ev.type === "reasoning") {
+          // 推理增量：追加到思考块
+          streamReasoningRef.current += ev.text;
+          setStreamReasoning(streamReasoningRef.current);
+          scrollToBottom();
+        } else if (ev.type === "done") {
+          // 结束：用后端返回的完整文本定稿，同时同步到 ref 避免竞态
+          streamTextRef.current = ev.text;
+          setStreamText(ev.text);
+        } else if (ev.type === "error") {
+          // 后端返回的错误事件（invoke 仍可能 resolve，靠 ref 标记）
+          setError(ev.message);
+          streamErroredRef.current = true;
+        }
+      };
+
+      // 调用后端，传入 channel；Tauri 自动将 channel 转为 on_event 参数
+      await invoke("send_chat_message", {
         sessionId: activeId,
         userText: input,
         apiKey,
         model,
         apiBase,
+        onEvent: channel,
       });
 
+      // 流式完成后，刷新左侧会话列表标题/计数
       await loadThreads();
-      const session = await invoke<Session>("get_session", { id: activeId });
-      setMessages(session.messages || []);
-      scrollToBottom();
+
+      if (streamErroredRef.current) {
+        // 后端 error 事件：把已收到的部分固化为真实消息，不做落库对齐
+        preservePartialAsMessage();
+      } else {
+        // 正常结束：用 get_session 落库结果静默对齐（含 reasoning/text 拆分的规范格式）；
+        // done.text 已在流式气泡显示过，覆盖后视觉几乎无差异
+        const session = await invoke<Session>("get_session", { id: activeId });
+        setMessages(session.messages || []);
+      }
     } catch (e) {
-      setError(typeof e === "string" ? e : "请求失败");
-      invoke<Session>("get_session", { id: activeId })
-        .then(s => setMessages(s.messages || []))
-        .catch(console.error);
+      // invoke reject（网络异常等）：保留已收到的部分，不丢弃
+      const errMsg = typeof e === "string" ? e : "请求失败";
+      setError(errMsg);
+      preservePartialAsMessage();
     } finally {
+      // 收尾：关闭流式并清空临时状态（真实消息已落到 messages）
+      setStreaming(false);
+      setStreamText("");
+      setStreamReasoning("");
+      streamTextRef.current = "";
+      streamReasoningRef.current = "";
       setLoading(false);
     }
   };
@@ -361,6 +438,38 @@ export default function CanvasView() {
     }
     return true;
   });
+
+  // 流式渲染标志：streamShowReason 控制是否显示推理块（复用 shouldShowThinking，尊重 showThinking 设置）；
+  // 流式正文里可能内嵌 <think>...</think> 标签（如 Qwen QwQ 把思考写进 content）。
+  // 需实时拆分，让思考部分走 ThinkingBlock 折叠，而不是等流结束才折叠。
+  // 兼容流式中途状态：<think> 已出现但 </think> 未到时，其后内容全部算思考。
+  const parseStreamThink = (raw: string): { reason: string; body: string } => {
+    if (!raw.includes("<think>")) return { reason: "", body: raw };
+    let reason = "";
+    let body = "";
+    const openIdx = raw.indexOf("<think>");
+    // <think> 之前的内容属正文
+    body += raw.slice(0, openIdx);
+    const closeIdx = raw.indexOf("</think>", openIdx);
+    if (closeIdx === -1) {
+      // 思考进行中，尚未闭合：<think> 之后全部算思考
+      reason = raw.slice(openIdx + 7);
+    } else {
+      // 已闭合：中间是思考，</think> 之后是正文
+      reason = raw.slice(openIdx + 7, closeIdx);
+      body += raw.slice(closeIdx + 8);
+    }
+    return { reason: reason.trim(), body: body.trim() };
+  };
+
+  // 合并两种思考来源：reasoning 事件（专用字段）+ streamText 里的 <think> 标签。
+  const parsedStream = parseStreamThink(streamText);
+  const combinedReasoning = streamReasoning || parsedStream.reason;
+  const streamBody = parsedStream.body;
+
+  // streamHasBubble 表示流式气泡当前是否有可显示内容（正文或推理）。
+  const streamShowReason = streaming && shouldShowThinking(combinedReasoning) && !!combinedReasoning;
+  const streamHasBubble = streaming && (!!streamBody || streamShowReason);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -569,7 +678,25 @@ export default function CanvasView() {
                 );
               })}
             </div>
-            {loading && (
+            {/* 流式接收中的 AI 气泡：实时显示 delta/reasoning，复用 ThinkingBlock 与常规气泡样式 */}
+            {streamHasBubble && (
+              <div className="flex justify-start mt-5">
+                <div className="max-w-[75%] min-w-0">
+                  {streamShowReason && <ThinkingBlock content={combinedReasoning} />}
+                  {streamBody && (
+                    <div className="rounded-xl px-4 py-3 shadow-sm border break-words bg-ds-surface-card border-ds-border">
+                      <div className="whitespace-pre-wrap text-sm leading-relaxed">
+                        {streamBody}
+                        {/* 打字机光标 */}
+                        <span className="ml-0.5 inline-block animate-pulse text-ds-accent">▋</span>
+                      </div>
+                      <div className="text-[10px] mt-1.5 text-ds-muted">AI · 正在输入…</div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+            {loading && !streamBody && !streamShowReason && (
               <div className="flex justify-start mt-5">
                 <div className="bg-ds-surface-card border border-ds-border rounded-xl px-4 py-3 shadow-sm">
                   <div className="flex items-center gap-2 text-ds-muted text-sm">
