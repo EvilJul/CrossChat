@@ -25,6 +25,12 @@ struct OldMessage {
 }
 
 pub async fn migrate_sessions<T: ThreadStore>(store: &T) -> Result<MigrationReport, MigrationError> {
+    // 读旧栈数据：旧版 CrossChat 在 Unix 上把 sessions 存于 $HOME/.crosschat/sessions，
+    // 故此处用 home_dir() 读取——macOS/Linux 正确。写入新库则用 data_dir()（见 migrate_data /
+    // lib.rs）：读旧路径、写新路径的不对称是【有意为之】，勿改。
+    // ⚠️ Windows 例外：旧版在 Windows 存于 %APPDATA%\.crosschat，而 home_dir() 在 Windows 是
+    //   %USERPROFILE%，二者不同 → 旧 Windows 数据可能读不到。修此需在 Windows + 旧数据上验证，
+    //   当前环境无法测试，暂保持不变（仅影响从旧版升级的 Windows 用户找回历史会话）。
     let sessions_dir = dirs::home_dir()
         .ok_or(MigrationError::NoHomeDir)?
         .join(".crosschat/sessions");

@@ -207,7 +207,8 @@ impl ThreadStore for SqliteThreadStore {
 
     async fn list_turns(&self, thread_id: &str, limit: usize) -> StoreResult<Vec<Turn>> {
         let conn = self.conn.lock().map_err(|e| StoreError::DatabaseError(format!("锁 poisoned: {}", e)))?;
-        let mut stmt = conn.prepare("SELECT data FROM turns WHERE thread_id = ? ORDER BY id DESC LIMIT ?")
+        // 按 rowid 升序 = 插入顺序 = 时间序（id 是随机 UUIDv4，不能用于排序）
+        let mut stmt = conn.prepare("SELECT data FROM turns WHERE thread_id = ? ORDER BY rowid ASC LIMIT ?")
             .map_err(|e| StoreError::DatabaseError(e.to_string()))?;
 
         let turns = stmt.query_map(params![thread_id, limit], |row| {

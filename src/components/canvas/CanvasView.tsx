@@ -432,10 +432,15 @@ export default function CanvasView() {
             导出
           </button>
           <button
-            onClick={() => { if (confirm("确认删除此画布？")) deleteThread(t.id); }}
+            onClick={() => {
+              // 后端 delete_session 是软删除（设 status='deleted'），前端从列表移除即可
+              if (confirm("确认移除此画布？\n\n移除后将从列表中消失（数据仍保留在本地文件中，可通过数据目录恢复）。")) {
+                deleteThread(t.id);
+              }
+            }}
             className="w-full text-left px-3 py-1.5 text-xs text-ds-danger hover:bg-ds-danger/10 transition-colors"
           >
-            删除
+            移除
           </button>
         </div>
       )}
