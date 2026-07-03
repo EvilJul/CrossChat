@@ -120,6 +120,9 @@ struct OpenAIChoice {
 struct OpenAIDelta {
     #[serde(default)]
     content: Option<String>,
+    // 推理内容：DeepSeek R1 / Qwen QwQ 等 OpenAI 兼容端点在流式 delta 里返回思考过程
+    #[serde(default)]
+    reasoning_content: Option<String>,
     #[serde(default)]
     tool_calls: Option<Vec<OpenAIToolCallDelta>>,
 }
@@ -270,14 +273,30 @@ impl ModelClient for OpenAIClient {
 
         let stream = response.bytes_stream();
         let mut tool_calls: std::collections::HashMap<usize, (Option<String>, Option<String>, String)> = std::collections::HashMap::new();
+        // 跨 chunk 的行缓冲：一个 TCP chunk 可能在半行处截断，也可能包含多条 data 行。
+        // 用字节缓冲累积，只在遇到 '\n' 时切出完整行处理，残行留待下个 chunk 拼接（SSE 标准）。
+        // 按字节切行是安全的：'\n'(0x0A) 不会出现在 UTF-8 多字节序列中间，
+        // 故每条完整行都是合法 UTF-8（服务端返回的 JSON 本身即合法 UTF-8，含中文正文也不会被截断）。
+        let mut buffer: Vec<u8> = Vec::new();
 
-        let chunk_stream = stream.map(move |chunk_result| {
-            let chunk = chunk_result.map_err(|e| ModelError::StreamError(e.to_string()))?;
-            let text = String::from_utf8_lossy(&chunk);
+        // 用 flat_map：把每个网络 chunk 解析出的所有 StreamChunk 逐一产出，一条都不能丢。
+        let chunk_stream = stream.flat_map(move |chunk_result| {
+            let mut results: Vec<ModelResult<StreamChunk>> = Vec::new();
 
-            let mut results = Vec::new();
+            let chunk = match chunk_result {
+                Ok(c) => c,
+                Err(e) => {
+                    results.push(Err(ModelError::StreamError(e.to_string())));
+                    return futures::stream::iter(results);
+                }
+            };
 
-            for line in text.lines() {
+            buffer.extend_from_slice(&chunk);
+
+            // 逐行提取：只处理以 '\n' 结尾的完整行，末尾残行留在 buffer 里等下个 chunk 拼接
+            while let Some(pos) = buffer.iter().position(|&b| b == b'\n') {
+                let line_bytes: Vec<u8> = buffer.drain(..=pos).collect();
+                let line = String::from_utf8_lossy(&line_bytes);
                 let line = line.trim();
                 if line.is_empty() || !line.starts_with("data: ") {
                     continue;
@@ -288,8 +307,13 @@ impl ModelClient for OpenAIClient {
                     continue;
                 }
 
-                let parsed: OpenAIStreamResponse = serde_json::from_str(data)
-                    .map_err(|e| ModelError::InvalidResponse(e.to_string()))?;
+                let parsed: OpenAIStreamResponse = match serde_json::from_str(data) {
+                    Ok(p) => p,
+                    Err(e) => {
+                        results.push(Err(ModelError::InvalidResponse(e.to_string())));
+                        continue;
+                    }
+                };
 
                 if let Some(usage) = parsed.usage {
                     results.push(Ok(StreamChunk::Done {
@@ -305,6 +329,13 @@ impl ModelClient for OpenAIClient {
                 }
 
                 for choice in &parsed.choices {
+                    // 推理增量：与正文 content 并列处理（一条 delta 可能只有其一，也可能都没有）
+                    if let Some(reasoning) = &choice.delta.reasoning_content {
+                        if !reasoning.is_empty() {
+                            results.push(Ok(StreamChunk::ReasoningDelta { text: reasoning.clone() }));
+                        }
+                    }
+
                     if let Some(content) = &choice.delta.content {
                         if !content.is_empty() {
                             results.push(Ok(StreamChunk::TextDelta { text: content.clone() }));
@@ -352,15 +383,8 @@ impl ModelClient for OpenAIClient {
                 }
             }
 
-            if results.is_empty() {
-                return Ok(StreamChunk::TextDelta { text: String::new() });
-            }
-
-            if results.len() == 1 {
-                return results.into_iter().next().unwrap();
-            }
-
-            results.into_iter().next().unwrap()
+            // 本 chunk 解析出的所有 StreamChunk 逐一产出；为空则不产出（不再塞空 TextDelta 占位）
+            futures::stream::iter(results)
         });
 
         Ok(Box::new(Box::pin(chunk_stream)))
